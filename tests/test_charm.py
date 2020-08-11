@@ -1,4 +1,4 @@
-# Copyright 2020 postgresql-charmers@lists.launchpad.net
+# Copyright 2020 Canonical Ltd.
 # See LICENSE file for licensing details.
 
 import unittest
