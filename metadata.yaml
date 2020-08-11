@@ -1,0 +1,7 @@
+# Copyright 2020 postgresql-charmers@lists.launchpad.net
+# See LICENSE file for licensing details.
+name: postgresql
+description: |
+  TODO: fill out the charm's description
+summary: |
+  TODO: fill out the charm's summary
