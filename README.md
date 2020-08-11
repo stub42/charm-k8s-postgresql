@@ -1,4 +1,4 @@
-# postgresql
+# PostgreSQL
 
 ## Description
 
