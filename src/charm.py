@@ -31,9 +31,7 @@ class PostgresqlCharm(CharmBase):
         if fail:
             event.fail(fail)
         else:
-            event.set_result(
-                "Probability is too important to be left to the experts."
-                " -- Richard Hamming")
+            event.set_result("Probability is too important to be left to the experts." " -- Richard Hamming")
 
 
 if __name__ == "__main__":
