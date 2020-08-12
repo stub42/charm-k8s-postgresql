@@ -35,4 +35,4 @@ class PostgresqlCharm(CharmBase):
 
 
 if __name__ == "__main__":
-    main(PostgresqlCharm)
+    main(PostgresqlCharm, use_juju_for_storage=True)
