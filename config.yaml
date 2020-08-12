@@ -1,10 +1,28 @@
-# Copyright 2020 Canonical Ltd.
-# See LICENSE file for licensing details.
-#
-# This is only an example, and you should edit to suit your needs.
-# If you don't need config, you can remove the file entirely.
 options:
-  thing:
-    default: 🎁
-    description: A thing used by the charm.
+  image:
     type: string
+    description: >
+        The location of the image to use, e.g. "registry.example.com/pgcharm:v1". This setting is required.
+    default: ""
+  image_username:
+    type: string
+    description: "Username to use for the configured image registry, if required"
+    default: ""
+  image_password:
+    type: string
+    description: "Password to use for the configured image registry, if required"
+    default: ""
+  container_config:
+    type: string
+    description: >
+      YAML formatted map of container config keys & values. These are
+      generally accessed from inside the image as environment variables.
+      Use to configure customized Wordpress images. This configuration
+      gets logged; use container_secrets for secrets.
+    default: ""
+  container_secrets:
+    type: string
+    description: >
+      YAML formatted map of secrets. Works just like container_config,
+      except that values should not be logged.
+    default: ""
