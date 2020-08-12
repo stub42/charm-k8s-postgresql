@@ -1,3 +1,10 @@
+*~
+.coverage
+__pycache__
+/dockerfile
+/image-scripts/
+/tests/
+/Makefile
 /env
 *.py[cod]
 *.charm
