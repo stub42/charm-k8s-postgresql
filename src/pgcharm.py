@@ -20,7 +20,7 @@ class PostgreSQLCharm(CharmBase):
         super().__init__(*args)
         self.framework.observe(self.on.start, self.on_config_changed)
         self.framework.observe(self.on.config_changed, self.on_config_changed)
-        self.framework.observe(self.on.charm_upgrade, self.on_config_changed)
+        self.framework.observe(self.on.upgrade_charm, self.on_config_changed)
 
     def _check_for_config_problems(self):
         """Return config related problems as a human readable string."""
@@ -102,14 +102,16 @@ class PostgreSQLCharm(CharmBase):
         ]
 
         spec = {
-            "version": 2,
+            "version": 3,
             "containers": [
                 {
                     "name": self.app.name,
-                    "imageDetails": {"imagePath": config["image_path"]},
+                    "imageDetails": {"imagePath": config["image"]},
                     "ports": ports,
-                    "config": secure_pod_config,
-                    "kubernetes": {"readinessProbe": {"exec": {"command": ["/usr/local/bin/docker-readyness.sh"]}}},
+                    "envConfig": secure_pod_config,
+                    # "kubernetes": {"readinessProbe": {"exec": {"command": ["/usr/local/bin/docker-readyness.sh"]}}},
+                    # "kubernetes": {"readinessProbe": {"tcpSocket":
+                    #     {"port": 5432, "initialDelaySeconds": 10, "periodSeconds": 25}}},
                 }
             ],
         }

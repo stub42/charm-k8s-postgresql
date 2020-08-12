@@ -3,6 +3,8 @@
 name: postgresql
 description: >
   Work in progress PostgreSQL charm for Kubernetes deployments.
+summary: >
+  Don't use this, it isn't ready.
 maintainers:
   - postgresql-charmers@lists.launchpad.net
 min-juju-version: 2.8.0

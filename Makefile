@@ -30,7 +30,7 @@ clean:
 	@echo "Cleaning files"
 	@git clean -fXd
 
-bind.charm: src/*.py requirements.txt
+postgresql.charm: src/*.py requirements.txt *.yaml
 	charmcraft build
 
 image-deps:
