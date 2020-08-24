@@ -1,5 +1,14 @@
 ARG DIST_RELEASE
+
+FROM golang:1.14 AS gobuilder
+WORKDIR /go
+RUN go get -d -v k8s.io/kubernetes/cmd/kubectl
+RUN go get -v k8s.io/kubernetes/cmd/kubectl
+
 FROM ubuntu:${DIST_RELEASE}
+
+COPY --from=gobuilder /go/bin/kubectl /usr/local/bin/
+RUN chmod 0755 /usr/local/bin/kubectl
 
 LABEL maintainer="postgresql-charmers@lists.launchpad.net"
 

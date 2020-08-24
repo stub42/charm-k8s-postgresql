@@ -2,7 +2,7 @@ PG_VER = 12
 DOCKER_IMAGE ?= localhost:32000/pgcharm
 DOCKER_TAG ?= pg$(PG_VER)-latest
 
-DOCKER_DEPS := postgresql repmgr postgresql-$(PG_VER)-repack repmgr openssh-server unattended-upgrades
+DOCKER_DEPS := systemd snapd postgresql repmgr postgresql-$(PG_VER)-repack openssh-server unattended-upgrades
 
 ifeq ($(PG_VER),12)
     DIST_RELEASE = focal
@@ -22,13 +22,13 @@ lint: blacken
 # We actually use the build directory created by charmcraft,
 # but the .charm file makes a much more convenient sentinel.
 unittest: bind.charm
-	@tox -e unit
+	tox -e unit
 
 test: lint unittest
 
 clean:
 	@echo "Cleaning files"
-	@git clean -fXd
+	git clean -fXd
 
 postgresql.charm: src/*.py requirements.txt *.yaml
 	charmcraft build
@@ -39,13 +39,12 @@ image-deps:
 
 image-lint: image-deps
 	@echo "Running shellcheck."
-	@shellcheck files/docker-entrypoint.sh
-	@shellcheck files/docker-readyness.sh
+	shellcheck files/docker-entrypoint.sh
+	shellcheck files/docker-readyness.sh
 
 image-build: image-lint
-	@echo "Building the image."
-	@docker build \
-		--no-cache=true \
+	@echo "Building the $(DOCKER_IMAGE):$(DOCKER_TAG) image (PostgreSQL $(PG_VER) under $(DIST_RELEASE))"
+	docker build \
 		--build-arg BUILD_DATE=$$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
 		--build-arg PKGS_TO_INSTALL='$(DOCKER_DEPS)' \
 		--build-arg DIST_RELEASE=$(DIST_RELEASE) \
@@ -55,6 +54,6 @@ image-build: image-lint
 
 image-push: image-build
 	@echo "Pushing the image."
-	@docker push $(DOCKER_IMAGE):$(DOCKER_TAG)
+	docker push $(DOCKER_IMAGE):$(DOCKER_TAG)
 
 .PHONY: blacken lint unittest test clean image-deps image-lint image-build image-push
