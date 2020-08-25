@@ -1,14 +1,5 @@
-PG_VER = 12
 DOCKER_IMAGE ?= localhost:32000/pgcharm
 DOCKER_TAG ?= pg$(PG_VER)-latest
-
-DOCKER_DEPS := systemd snapd postgresql repmgr postgresql-$(PG_VER)-repack openssh-server unattended-upgrades
-
-ifeq ($(PG_VER),12)
-    DIST_RELEASE = focal
-else
-    DIST_RELEASE ?= focal
-endif
 
 blacken:
 	@echo "Normalising python layout with black."
@@ -43,12 +34,9 @@ image-lint: image-deps
 	shellcheck files/docker-readyness.sh
 
 image-build: image-lint
-	@echo "Building the $(DOCKER_IMAGE):$(DOCKER_TAG) image (PostgreSQL $(PG_VER) under $(DIST_RELEASE))"
+	@echo "Building the $(DOCKER_IMAGE):$(DOCKER_TAG) image"
 	docker build \
 		--build-arg BUILD_DATE=$$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
-		--build-arg PKGS_TO_INSTALL='$(DOCKER_DEPS)' \
-		--build-arg DIST_RELEASE=$(DIST_RELEASE) \
-		--build-arg PG_VER=$(PG_VER) \
 		-t $(DOCKER_IMAGE):$(DOCKER_TAG) \
 		.
 
