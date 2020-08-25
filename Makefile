@@ -40,8 +40,12 @@ image-build: image-lint
 		-t $(DOCKER_IMAGE):$(DOCKER_TAG) \
 		.
 
-image-push: image-build
-	@echo "Pushing the image."
+image-push-registry:
+	@echo "Pushing the image to registry."
 	docker push $(DOCKER_IMAGE):$(DOCKER_TAG)
+
+image-push-microk8s: image-build
+	@echo "Pushing the image to microk8s local storage."
+	docker save $(DOCKER_IMAGE):$(DOCKER_TAG) > .pgimg.tar && microk8s.ctr image import .pgimg.tar && rm -v .pgimg.tar
 
 .PHONY: blacken lint unittest test clean image-deps image-lint image-build image-push

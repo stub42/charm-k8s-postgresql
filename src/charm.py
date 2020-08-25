@@ -3,28 +3,31 @@
 # Copyright 2020 Canonical Ltd.
 # Licensed under the GPLv3, see LICENCE file for details.
 
-import io
+from base64 import b64encode
 import logging
-from ops.charm import CharmBase
-from ops.main import main
-from ops.model import ActiveStatus, MaintenanceStatus
-from pprint import pprint
+import subprocess
+from typing import Dict, Iterable
 
-from yaml import safe_load
+import charmhelpers.core.host as host
+import ops.charm
+import ops.main
+import ops.model
+import yaml
 
 logger = logging.getLogger(__name__)
 
 REQUIRED_SETTINGS = ["image"]
 
 
-class PostgreSQLCharm(CharmBase):
+class PostgreSQLCharm(ops.charm.CharmBase):
     def __init__(self, *args):
         super().__init__(*args)
         self.framework.observe(self.on.start, self.on_config_changed)
+        self.framework.observe(self.on.leader_elected, self.on_config_changed)
         self.framework.observe(self.on.config_changed, self.on_config_changed)
         self.framework.observe(self.on.upgrade_charm, self.on_config_changed)
 
-    def _check_for_config_problems(self):
+    def _check_for_config_problems(self) -> str:
         """Return config related problems as a human readable string."""
         problems = []
 
@@ -34,7 +37,7 @@ class PostgreSQLCharm(CharmBase):
 
         return "; ".join(filter(None, problems))
 
-    def _missing_charm_settings(self):
+    def _missing_charm_settings(self) -> Iterable[str]:
         """Return a list of required configuration settings that are not set."""
         config = self.model.config
         missing = [setting for setting in REQUIRED_SETTINGS if not config[setting]]
@@ -42,95 +45,106 @@ class PostgreSQLCharm(CharmBase):
             missing.append("image_password")
         return sorted(missing)
 
-    def on_config_changed(self, event):
+    def on_config_changed(self, event: ops.charm.ConfigChangedEvent):
         """Check that we're leader, and if so, set up the pod."""
         if self.model.unit.is_leader():
             # Only the leader can set_spec().
-            resources = self.make_pod_resources()
             spec = self.make_pod_spec()
-            spec.update(resources)
+            resources = self.make_pod_resources()
 
             msg = "Configuring pod"
             logger.info(msg)
-            self.model.unit.status = MaintenanceStatus(msg)
+            self.model.unit.status = ops.model.MaintenanceStatus(msg)
+
+            # https://bugs.launchpad.net/juju/+bug/1880637
+            # self.model.pod.set_spec(spec, {'kubernetesResources': resources})
+            spec.update({'kubernetesResources': resources})
             self.model.pod.set_spec(spec)
 
             msg = "Pod configured"
             logger.info(msg)
-            self.model.unit.status = ActiveStatus(msg)
+            self.model.unit.status = ops.model.ActiveStatus(msg)
         else:
             logger.info("Spec changes ignored by non-leader")
-            self.model.unit.status = ActiveStatus()
+            self.model.unit.status = ops.model.ActiveStatus()
 
-    def make_pod_resources(self):
-        """Compile and return our pod resources (e.g. ingresses)."""
-        # LP#1889746: We need to define a manual ingress here to work around LP#1889703.
-        resources = {}  # TODO
-        out = io.StringIO()
-        pprint(resources, out)
-        logger.info("This is the Kubernetes Pod resources <<EOM\n{}\nEOM".format(out.getvalue()))
-        return resources
-
-    def generate_pod_config(self, secured=True):
-        """Kubernetes pod config generator.
-
-        generate_pod_config generates Kubernetes deployment config.
-        If the secured keyword is set then it will return a sanitised copy
-        without exposing secrets.
-        """
-        config = self.model.config
-        pod_config = {}
-        if config["container_config"].strip():
-            pod_config = safe_load(config["container_config"])
-
-        if secured:
-            return pod_config
-
-        if config["container_secrets"].strip():
-            container_secrets = safe_load(config["container_secrets"])
-            pod_config.update(container_secrets)
-
-        return pod_config
-
-    def make_pod_spec(self):
+    def make_pod_spec(self) -> Dict:
         """Set up and return our full pod spec here."""
         config = self.model.config
-        full_pod_config = self.generate_pod_config(secured=False)
-        secure_pod_config = self.generate_pod_config(secured=True)
+
+        image_details = {
+            "imagePath": config["image"],
+        }
 
         ports = [
-            {"name": "postgresql", "containerPort": 5432, "protocol": "TCP"},
-            {"name": "ssh", "containerPort": 22, "protocol": "TCP"},
+            {"name": "pgsql", "containerPort": 5432, "protocol": "TCP"},
         ]
+
+        config_fields = {
+            "JUJU_NODE_NAME": "spec.nodeName",
+            "JUJU_POD_NAME": "metadata.name",
+            "JUJU_POD_NAMESPACE": "metadata.namespace",
+            "JUJU_POD_IP": "status.podIP",
+            "JUJU_POD_SERVICE_ACCOUNT": "spec.serviceAccountName",
+        }
+        env_config = {k: {"field": {"path": p, "api-version": "v1"}} for k, p in config_fields.items()}
+        env_config['PGSQL_ADMIN_PASSWORD'] = {
+            'secret': {'name': 'charm-secrets', 'key': 'pgsql-admin-password'}
+        }
 
         spec = {
             "version": 3,
             "containers": [
                 {
                     "name": self.app.name,
-                    "imageDetails": {"imagePath": config["image"]},
+                    "imageDetails": image_details,
                     "ports": ports,
-                    "envConfig": secure_pod_config,
+                    "envConfig": env_config,
                     # "kubernetes": {"readinessProbe": {"exec": {"command": ["/usr/local/bin/docker-readyness.sh"]}}},
                     # "kubernetes": {"readinessProbe": {"tcpSocket":
                     #     {"port": 5432, "initialDelaySeconds": 10, "periodSeconds": 25}}},
                 }
             ],
         }
+        logger.info("Pod spec <<EOM\n{}\nEOM".format(yaml.dump(spec)))
 
-        out = io.StringIO()
-        pprint(spec, out)
-        logger.info("This is the Kubernetes Pod spec config (sans secrets) <<EOM\n{}\nEOM".format(out.getvalue()))
-
+        # After logging, attach our secrets.
         if config.get("image_username"):
-            spec.get("containers")[0].get("imageDetails")["username"] = config["image_username"]
+            image_details["username"] = config["image_username"]
         if config.get("image_password"):
-            spec.get("containers")[0].get("imageDetails")["password"] = config["image_password"]
-
-        secure_pod_config.update(full_pod_config)
+            image_details["password"] = config["image_password"]
 
         return spec
 
+    def make_pod_resources(self) -> Dict:
+        """Compile and return our pod resources (e.g. ingresses)."""
+        secrets_data = {}  # Fill dictionary with secrets after logging resources
+        resources = {'secrets': [{'name': 'charm-secrets', 'type': 'Opaque', 'data': secrets_data}]}
+        logger.info("Pod resources <<EOM\n{}\nEOM".format(yaml.dump(resources)))
+
+        secrets = {'pgsql-admin-password': self.get_admin_password()}
+        for k, v in secrets.items():
+            secrets_data[k] = b64encode(v.encode('UTF-8')).decode('UTF-8')
+
+        return resources
+
+    def get_admin_password(self) -> str:
+        pw = _leader_get("admin_password")
+        if not pw:
+            pw = host.pwgen(40)
+            _leader_set({"admin_password": pw})
+        return pw
+
+
+def _leader_get(attribute: str) -> str:
+    cmd = ["leader-get", "--format=yaml", attribute]
+    return yaml.safe_load(subprocess.check_output(cmd).decode("UTF-8"))
+
+
+def _leader_set(settings: Dict[str, str]):
+    cmd = ["leader-set"] + ["{}={}".format(k, v or "") for k, v in settings.items()]
+    subprocess.check_call(cmd)
+
 
 if __name__ == "__main__":
-    main(PostgreSQLCharm, use_juju_for_storage=True)
+    ops.main.main(PostgreSQLCharm, use_juju_for_storage=True)

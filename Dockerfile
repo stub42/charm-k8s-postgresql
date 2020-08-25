@@ -42,13 +42,14 @@ ARG PKGS_TO_INSTALL="postgresql postgresql-${PG_MAJOR}-repack repmgr"
 
 ENV PGDATA="/var/lib/postgresql/${PG_MAJOR}/main" \
     PATH="$PATH:/usr/lib/postgresql/${PG_MAJOR}/bin"
-VOLUME ${PGDATA}
 
 RUN \
 # Install remaining packages
     apt-get install -y --no-install-recommends ${PKGS_TO_INSTALL} && \
 # Purge apt cache
     rm -rf /var/lib/apt/lists/*
+
+VOLUME ["/var/lib/postgresql", "/var/log/postgresql"]
 
 COPY ./files/docker-entrypoint.sh /usr/local/bin/
 RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh
