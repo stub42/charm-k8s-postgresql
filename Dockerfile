@@ -2,7 +2,6 @@ ARG DIST_RELEASE=focal
 
 FROM golang:1.14 AS gobuilder
 WORKDIR /go
-RUN go get -d -v k8s.io/kubernetes/cmd/kubectl
 RUN go get -v k8s.io/kubernetes/cmd/kubectl
 
 FROM ubuntu:${DIST_RELEASE}
@@ -49,6 +48,8 @@ RUN \
 # Purge apt cache
     rm -rf /var/lib/apt/lists/*
 
+# apt installation created and populated things, so now declare necessary
+# persistent volumes.
 VOLUME ["/var/lib/postgresql", "/var/log/postgresql"]
 
 COPY ./files/docker-entrypoint.sh /usr/local/bin/

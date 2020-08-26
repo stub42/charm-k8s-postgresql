@@ -3,6 +3,9 @@
 name: postgresql
 description: >
   Work in progress PostgreSQL charm for Kubernetes deployments.
+tags:
+  - database
+  - k8s
 summary: >
   Don't use this, it isn't ready.
 maintainers:
@@ -15,3 +18,10 @@ provides:
     interface: pgsql
   db-admin:
     interface: pgsql
+storage:
+  pgdata:
+    type: filesystem
+    location: /var/lib/postgresql
+  logs:
+    type: filesystem
+    location: /var/log/postgresql
