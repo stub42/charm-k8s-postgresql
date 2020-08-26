@@ -1,10 +1,19 @@
-DOCKER_IMAGE ?= localhost:32000/pgcharm
-DOCKER_TAG ?= pg$(PG_VER)-latest
+# Copyright 2020 Canonical Ltd.
+# Licensed under the GPLv3, see LICENCE file for details.
+
+PG_MAJOR := 12
+DIST_RELEASE := focal
+
+IMAGE_REGISTRY :=
+IMAGE_NAME := pgcharm
+IMAGE_TAG := pg$(PG_MAJOR)-latest
+
+REGISTRY_IMAGE := $(IMAGE_REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)
+LOCAL_IMAGE := $(IMAGE_NAME):$(IMAGE_TAG)
 
 blacken:
 	@echo "Normalising python layout with black."
 	@tox -e black
-
 
 lint: blacken
 	@echo "Running flake8"
@@ -34,18 +43,16 @@ image-lint: image-deps
 	shellcheck files/docker-readyness.sh
 
 image-build: image-lint
-	@echo "Building the $(DOCKER_IMAGE):$(DOCKER_TAG) image"
-	docker build \
-		--build-arg BUILD_DATE=$$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
-		-t $(DOCKER_IMAGE):$(DOCKER_TAG) \
-		.
-
-image-push-registry:
-	@echo "Pushing the image to registry."
-	docker push $(DOCKER_IMAGE):$(DOCKER_TAG)
+	@echo "Building the $(LOCAL_IMAGE) image"
+	docker build -t $(LOCAL_IMAGE) --build-arg BUILD_DATE=$$(date -u +'%Y-%m-%dT%H:%M:%SZ') .
 
 image-push-microk8s: image-build
-	@echo "Pushing the image to microk8s local storage."
-	docker save $(DOCKER_IMAGE):$(DOCKER_TAG) > .pgimg.tar && microk8s.ctr image import .pgimg.tar && rm -v .pgimg.tar
+	@echo "Pushing the $(LOCAL_IMAGE) image to microk8s local storage."
+	docker save $(LOCAL_IMAGE) > .pgimg.tar && microk8s.ctr image import .pgimg.tar && rm -v .pgimg.tar
+
+image-push-registry: image-build
+	@echo "Pushing the $(LOCAL_IMAGE) image to $(IMAGE_REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)."
+	docker tag $(LOCAL_IMAGE) $(REGISTRY_IMAGE)
+	docker push $(REGISTRY_IMAGE)
 
 .PHONY: blacken lint unittest test clean image-deps image-lint image-build image-push

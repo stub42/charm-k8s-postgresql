@@ -58,7 +58,7 @@ class PostgreSQLCharm(ops.charm.CharmBase):
 
             # https://bugs.launchpad.net/juju/+bug/1880637
             # self.model.pod.set_spec(spec, {'kubernetesResources': resources})
-            spec.update({'kubernetesResources': resources})
+            spec.update({"kubernetesResources": resources})
             self.model.pod.set_spec(spec)
 
             msg = "Pod configured"
@@ -88,9 +88,12 @@ class PostgreSQLCharm(ops.charm.CharmBase):
             "JUJU_POD_SERVICE_ACCOUNT": "spec.serviceAccountName",
         }
         env_config = {k: {"field": {"path": p, "api-version": "v1"}} for k, p in config_fields.items()}
-        env_config['PGSQL_ADMIN_PASSWORD'] = {
-            'secret': {'name': 'charm-secrets', 'key': 'pgsql-admin-password'}
-        }
+        env_config["PGSQL_ADMIN_PASSWORD"] = {"secret": {"name": "charm-secrets", "key": "pgsql-admin-password"}}
+
+        vol_config = [
+            {"name": "charm-secrets", "mountPath": "/charm-secrets", "secret": {"name": "charm-secrets"}},
+            {"name": "var-run-postgresql", "mountPath": "/var/run/postgresql", "emptyDir": {"medium": "Memory"}},
+        ]
 
         spec = {
             "version": 3,
@@ -100,6 +103,7 @@ class PostgreSQLCharm(ops.charm.CharmBase):
                     "imageDetails": image_details,
                     "ports": ports,
                     "envConfig": env_config,
+                    "volumeConfig": vol_config,
                     # "kubernetes": {"readinessProbe": {"exec": {"command": ["/usr/local/bin/docker-readyness.sh"]}}},
                     # "kubernetes": {"readinessProbe": {"tcpSocket":
                     #     {"port": 5432, "initialDelaySeconds": 10, "periodSeconds": 25}}},
@@ -119,12 +123,12 @@ class PostgreSQLCharm(ops.charm.CharmBase):
     def make_pod_resources(self) -> Dict:
         """Compile and return our pod resources (e.g. ingresses)."""
         secrets_data = {}  # Fill dictionary with secrets after logging resources
-        resources = {'secrets': [{'name': 'charm-secrets', 'type': 'Opaque', 'data': secrets_data}]}
+        resources = {"secrets": [{"name": "charm-secrets", "type": "Opaque", "data": secrets_data}]}
         logger.info("Pod resources <<EOM\n{}\nEOM".format(yaml.dump(resources)))
 
-        secrets = {'pgsql-admin-password': self.get_admin_password()}
+        secrets = {"pgsql-admin-password": self.get_admin_password()}
         for k, v in secrets.items():
-            secrets_data[k] = b64encode(v.encode('UTF-8')).decode('UTF-8')
+            secrets_data[k] = b64encode(v.encode("UTF-8")).decode("UTF-8")
 
         return resources
 
