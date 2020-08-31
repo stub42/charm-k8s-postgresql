@@ -19,10 +19,32 @@ if [ ! -d "$PGDATA" ]; then
     mkdir -p "$PGDATA"
     chown postgres:postgres "$PGDATA"
     chmod 0750 "$PGDATA"
-    pg_createcluster 12 main --locale=en_US.UTF-8 --port=5432 --datadir="$PGDATA"
+    pg_createcluster $(PG_MAJOR) main --locale=en_US.UTF-8 --port=5432 --datadir="$PGDATA"
 fi
 
-# TODO: Reset admin password, as we might be mounting a recovered DB
-# from a previous deployment and the secret has changed.
+cat<<EOM > /etc/postgresql/$(PG_MAJOR)/main/conf.d/juju_charm.conf
+# This file maintained by the PostgreSQL k8s Juju Charm
+
+# TODO: Charm option to specify PostgreSQL configuration. Confirm
+# behavior when settings duplicated in main postgresql.conf.
+
+hot_standby = on
+wal_level = replica  # TODO: logical replication?
+max_wal_senders = 10  # TODO: number of nodes + 2 (repmgr) + slack
+wal_log_hints = on  # Ignored; DB initialized with data checksums
+
+wal_keep_segments = 500  # TODO: WAL archiving needed for real deployments
+archive_mode = on
+archive_command = '/bin/true'
+
+EOM
+
+# TODO: Create repmgr admin account if necessary.
+
+# TODO: Reset repmgr admin password, as we might be mounting a recovered
+# DB from a previous deployment and the secret has changed.
+
+# TODO: On primary, 'ALTER EXTENSION repmgr UPDATE' in case repmgr has
+# had a major upgrade.
 
 tail -F /dev/null
