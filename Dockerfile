@@ -22,7 +22,7 @@ RUN go get -v k8s.io/kubernetes/cmd/kubectl
 FROM ubuntu:${DIST_RELEASE}
 
 LABEL maintainer="postgresql-charmers@lists.launchpad.net"
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.py"]
 EXPOSE 5432/tcp
 
 COPY --from=gobuilder /go/bin/kubectl /usr/local/bin/
@@ -55,9 +55,10 @@ ARG PG_MAJOR=12
 # in ./files/createcluster.conf.
 ENV PGDATA="/srv/pgdata/${PG_MAJOR}/main" \
     LANG="en_US.UTF-8" \
-    PATH="$PATH:/usr/lib/postgresql/${PG_MAJOR}/bin"
+    PATH="$PATH:/usr/lib/postgresql/${PG_MAJOR}/bin" \
+    PG_MAJOR="${PG_MAJOR}"
 
-ARG PKGS_TO_INSTALL="postgresql postgresql-${PG_MAJOR}-repack repmgr"
+ARG PKGS_TO_INSTALL="postgresql postgresql-${PG_MAJOR}-repack repmgr python3 python3-psycopg2 python3-kubernetes less vim"
 
 RUN \
 # Install remaining packages
@@ -65,15 +66,14 @@ RUN \
 # Purge apt cache
     rm -rf /var/lib/apt/lists/*
 
-# apt installation created and populated things, so now declare
-# necessary persistent volumes.
+# Docker volumes are probably pointless, overriddden by k8s volumes
 VOLUME ["/srv", "/var/log/postgresql"]
 
-COPY ./files/docker-entrypoint.sh /usr/local/bin/
-RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh
+COPY ./files/docker-entrypoint.py /usr/local/bin/
+RUN chmod 0755 /usr/local/bin/docker-entrypoint.py
 
-COPY ./files/docker-readyness.sh /usr/local/bin/
-RUN chmod 0755 /usr/local/bin/docker-readyness.sh
+# COPY ./files/docker-readyness.sh /usr/local/bin/
+# RUN chmod 0755 /usr/local/bin/docker-readyness.sh
 
 # BUILD_DATE has a default set due to
 # https://bugs.launchpad.net/launchpad/+bug/1892351.

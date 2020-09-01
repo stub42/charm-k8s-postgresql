@@ -18,9 +18,9 @@
 from base64 import b64encode
 import logging
 import subprocess
-from typing import Dict, Iterable
+from typing import Dict, Iterable, List
 
-import charmhelpers.core.host as host
+from charmhelpers.core import host, hookenv
 import ops.charm
 import ops.main
 import ops.model
@@ -38,6 +38,8 @@ class PostgreSQLCharm(ops.charm.CharmBase):
         self.framework.observe(self.on.leader_elected, self.on_config_changed)
         self.framework.observe(self.on.config_changed, self.on_config_changed)
         self.framework.observe(self.on.upgrade_charm, self.on_config_changed)
+        self.framework.observe(self.on["peer"].relation_joined, self.on_config_changed)
+        self.framework.observe(self.on["peer"].relation_departed, self.on_config_changed)
 
     def _check_for_config_problems(self) -> str:
         """Return config related problems as a human readable string."""
@@ -60,6 +62,11 @@ class PostgreSQLCharm(ops.charm.CharmBase):
     def on_config_changed(self, event: ops.charm.ConfigChangedEvent):
         """Check that we're leader, and if so, set up the pod."""
         if self.model.unit.is_leader():
+
+            goal_state = hookenv.goal_state()
+
+            logger.info("Goal state <<EOM\n{}\nEOM".format(yaml.dump(goal_state)))
+
             # Only the leader can set_spec().
             spec = self.make_pod_spec()
             resources = self.make_pod_resources()
@@ -92,6 +99,8 @@ class PostgreSQLCharm(ops.charm.CharmBase):
             {"name": "pgsql", "containerPort": 5432, "protocol": "TCP"},
         ]
 
+        expected_units = self.expected_units
+
         config_fields = {
             "JUJU_NODE_NAME": "spec.nodeName",
             "JUJU_POD_NAME": "metadata.name",
@@ -100,7 +109,12 @@ class PostgreSQLCharm(ops.charm.CharmBase):
             "JUJU_POD_SERVICE_ACCOUNT": "spec.serviceAccountName",
         }
         env_config = {k: {"field": {"path": p, "api-version": "v1"}} for k, p in config_fields.items()}
+
+        # TODO: We probably don't need the secret as an environment variable
         env_config["PGSQL_ADMIN_PASSWORD"] = {"secret": {"name": "charm-secrets", "key": "pgsql-admin-password"}}
+
+        env_config["JUJU_EXPECTED_UNITS"] = " ".join(expected_units)
+        env_config["JUJU_NUM_EXPECTED_UNITS"] = str(len(expected_units))
 
         vol_config = [
             {"name": "charm-secrets", "mountPath": "/charm-secrets", "secret": {"name": "charm-secrets"}},
@@ -150,6 +164,20 @@ class PostgreSQLCharm(ops.charm.CharmBase):
             pw = host.pwgen(40)
             _leader_set({"admin_password": pw})
         return pw
+
+    @property
+    def expected_units(self) -> List[str]:
+        # Goal state looks like this:
+        #
+        # relations: {}
+        # units:
+        #   postgresql/0:
+        #     since: '2020-08-31 11:05:32Z'
+        #     status: active
+        #   postgresql/1:
+        #     since: '2020-08-31 11:05:54Z'
+        #     status: maintenance
+        return sorted(hookenv.goal_state().get("units", {}).keys(), key=lambda x: int(x.split('/')[-1]))
 
 
 def _leader_get(attribute: str) -> str:

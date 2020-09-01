@@ -31,6 +31,9 @@ provides:
     interface: pgsql
   db-admin:
     interface: pgsql
+peers:
+  peer:
+    interface: peer
 storage:
   pgdata:
     type: filesystem
