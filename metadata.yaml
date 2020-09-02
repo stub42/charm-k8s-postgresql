@@ -37,7 +37,7 @@ peers:
 storage:
   pgdata:
     type: filesystem
-    location: /var/lib/postgresql
+    location: /srv
   logs:
     type: filesystem
     location: /var/log/postgresql

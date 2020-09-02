@@ -15,9 +15,9 @@
 
 ARG DIST_RELEASE=focal
 
-FROM golang:1.14 AS gobuilder
-WORKDIR /go
-RUN go get -v k8s.io/kubernetes/cmd/kubectl
+# FROM golang:1.14 AS gobuilder
+# WORKDIR /go
+# RUN go get -v k8s.io/kubernetes/cmd/kubectl
 
 FROM ubuntu:${DIST_RELEASE}
 
@@ -25,8 +25,8 @@ LABEL maintainer="postgresql-charmers@lists.launchpad.net"
 ENTRYPOINT ["/usr/local/bin/docker_entrypoint.py"]
 EXPOSE 5432/tcp
 
-COPY --from=gobuilder /go/bin/kubectl /usr/local/bin/
-RUN chmod 0755 /usr/local/bin/kubectl
+# COPY --from=gobuilder /go/bin/kubectl /usr/local/bin/
+# RUN chmod 0755 /usr/local/bin/kubectl
 
 RUN \
 # Avoid interactive prompts.
@@ -58,13 +58,20 @@ ENV PGDATA="/srv/pgdata/${PG_MAJOR}/main" \
     PATH="$PATH:/usr/lib/postgresql/${PG_MAJOR}/bin" \
     PG_MAJOR="${PG_MAJOR}"
 
-ARG PKGS_TO_INSTALL="postgresql postgresql-${PG_MAJOR}-repack repmgr python3 python3-psycopg2 python3-kubernetes less vim"
+ARG PKGS_TO_INSTALL="postgresql postgresql-${PG_MAJOR}-repack repmgr python3 python3-psycopg2 python3-pip less vim sudo"
 
 RUN \
 # Install remaining packages
     apt-get install -y --no-install-recommends ${PKGS_TO_INSTALL} && \
 # Purge apt cache
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+# Install latest k8s API, so that online docs match
+    pip3 install kubernetes && \
+# Purge pip cache
+    rm -rf /root/.cache && \
+# Setup sudo
+    adduser postgres sudo && \
+    echo '%sudo ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
 # Docker volumes are probably pointless, overriddden by k8s volumes
 VOLUME ["/srv", "/var/log/postgresql"]

@@ -110,11 +110,8 @@ class PostgreSQLCharm(ops.charm.CharmBase):
         }
         env_config = {k: {"field": {"path": p, "api-version": "v1"}} for k, p in config_fields.items()}
 
-        # TODO: We probably don't need the secret as an environment variable
-        env_config["PGSQL_ADMIN_PASSWORD"] = {"secret": {"name": "charm-secrets", "key": "pgsql-admin-password"}}
-
         env_config["JUJU_EXPECTED_UNITS"] = " ".join(expected_units)
-        env_config["JUJU_NUM_EXPECTED_UNITS"] = str(len(expected_units))
+        env_config["JUJU_APPLICATION"] = self.app.name
 
         vol_config = [
             {"name": "charm-secrets", "mountPath": "/charm-secrets", "secret": {"name": "charm-secrets"}},
@@ -177,7 +174,7 @@ class PostgreSQLCharm(ops.charm.CharmBase):
         #   postgresql/1:
         #     since: '2020-08-31 11:05:54Z'
         #     status: maintenance
-        return sorted(hookenv.goal_state().get("units", {}).keys(), key=lambda x: int(x.split('/')[-1]))
+        return sorted(hookenv.goal_state().get("units", {}).keys(), key=lambda x: int(x.split("/")[-1]))
 
 
 def _leader_get(attribute: str) -> str:

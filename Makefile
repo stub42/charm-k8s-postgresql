@@ -18,7 +18,9 @@ DIST_RELEASE := focal
 
 IMAGE_REGISTRY :=
 IMAGE_NAME := pgcharm
-IMAGE_TAG := pg$(PG_MAJOR)-latest
+IMAGE_TAG := latest
+NO_CACHE :=
+# NO_CACHE := --no-cache
 
 REGISTRY_IMAGE := $(IMAGE_REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)
 LOCAL_IMAGE := $(IMAGE_NAME):$(IMAGE_TAG)
@@ -56,7 +58,7 @@ image-lint: image-deps
 
 image-build: image-lint
 	@echo "Building the $(LOCAL_IMAGE) image"
-	docker build -t $(LOCAL_IMAGE) --build-arg BUILD_DATE=$$(date -u +'%Y-%m-%dT%H:%M:%SZ') .
+	docker build $(NO_CACHE) -t $(LOCAL_IMAGE) --build-arg BUILD_DATE=$$(date -u +'%Y-%m-%dT%H:%M:%SZ') .
 
 image-push-microk8s: image-build
 	@echo "Pushing the $(LOCAL_IMAGE) image to microk8s local storage."
