@@ -58,7 +58,7 @@ ENV PGDATA="/srv/pgdata/${PG_MAJOR}/main" \
     PATH="$PATH:/usr/lib/postgresql/${PG_MAJOR}/bin" \
     PG_MAJOR="${PG_MAJOR}"
 
-ARG PKGS_TO_INSTALL="postgresql postgresql-${PG_MAJOR}-repack repmgr python3 python3-psycopg2 python3-pip less vim sudo"
+ARG PKGS_TO_INSTALL="postgresql postgresql-${PG_MAJOR}-repack repmgr python3 python3-psycopg2 python3-yaml python3-pip less vim sudo"
 
 RUN \
 # Install remaining packages

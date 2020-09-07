@@ -26,6 +26,7 @@ import traceback
 
 import kubernetes
 import psycopg2
+import yaml
 
 
 PGDATA = os.environ["PGDATA"]  # No underscore, PostgreSQL config
@@ -316,12 +317,8 @@ def set_master():
         api.patch_namespaced_pod(JUJU_POD_NAME, NAMESPACE, {"metadata": {"labels": {"role": "master"}}})
 
 
-def maybe_set_master():
-    if is_master():
-        set_master()
-
-
 def set_standby():
+    log.info("Labeling this pod as standby")
     cl = kubernetes.client.ApiClient()
     api = kubernetes.client.CoreV1Api(cl)
     api.patch_namespaced_pod(JUJU_POD_NAME, NAMESPACE, {"metadata": {"labels": {"role": "standby"}}})
@@ -332,6 +329,42 @@ def get_pod_ip(name) -> str:
     api = kubernetes.client.CoreV1Api(cl)
     pod = api.read_namespaced_pod(name, NAMESPACE)
     return pod.status.pod_ip
+
+
+def create_k8s_services():
+    # I think it would be better to create the service in the Charm.
+    # However, the operator pod contains an unknown and likely to change
+    # over time version of the # kubernetes Python client, so we can't
+    # rely on it.
+    cl = kubernetes.client.ApiClient()
+    api = kubernetes.client.CoreV1Api(cl)
+
+    service = {
+        "metadata": {"name": "master"},
+        "spec": {
+            "type": "NodePort",  # NodePort to enable external connections
+            "external_traffic_policy": "Local",  # "Cluster" for more even load balancing
+            "ports": [{"name": "pgsql", "port": 5432, "protocol": "TCP"}],
+            "selector": {"juju-app": JUJU_APPLICATION, "role": "master"},
+        },
+    }
+
+    log.info(f"master Service definition <<EOM\n{yaml.dump(service)}\nEOM")
+    try:
+        api.create_namespaced_service(NAMESPACE, service)
+    except kubernetes.client.ApiException as e:
+        if e.status != 409:
+            raise
+
+    service["metadata"]["name"] = "standbys"
+    service["spec"]["selector"]["role"] = "standby"
+
+    log.info(f"standbys Service definition <<EOM\n{yaml.dump(service)}\nEOM")
+    try:
+        api.create_namespaced_service(NAMESPACE, service)
+    except kubernetes.client.ApiException as e:
+        if e.status != 409:
+            raise
 
 
 def main():
@@ -361,8 +394,16 @@ def main():
     if is_master():
         update_repmgr_db()
 
-    # Last, to ensure new master setup before standbys attempt to clone.
-    maybe_set_master()
+        # Now DB is setup, advertise master status. This triggers other
+        # pods to continue.
+        set_master()
+
+        # Ensure the k8s Services exist to route connections to the
+        # master or standbys. Would be better to create this in the
+        # charm.
+        create_k8s_services()
+    else:
+        set_standby()
 
 
 def hang_forever():

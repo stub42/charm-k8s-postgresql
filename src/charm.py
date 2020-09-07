@@ -129,7 +129,7 @@ class PostgreSQLCharm(ops.charm.CharmBase):
                 }
             ],
         }
-        logger.info("Pod spec <<EOM\n{}\nEOM".format(yaml.dump(spec)))
+        logger.info(f"Pod spec <<EOM\n{yaml.dump(spec)}\nEOM")
 
         # After logging, attach our secrets.
         if config.get("image_username"):
@@ -143,7 +143,7 @@ class PostgreSQLCharm(ops.charm.CharmBase):
         """Compile and return our pod resources (e.g. ingresses)."""
         secrets_data = {}  # Fill dictionary with secrets after logging resources
         resources = {"secrets": [{"name": "charm-secrets", "type": "Opaque", "data": secrets_data}]}
-        logger.info("Pod resources <<EOM\n{}\nEOM".format(yaml.dump(resources)))
+        logger.info(f"Pod resources <<EOM\n{yaml.dump(resources)}\nEOM")
 
         secrets = {"pgsql-admin-password": self.get_admin_password()}
         for k, v in secrets.items():
