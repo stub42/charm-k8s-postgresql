@@ -75,10 +75,7 @@ class PostgreSQLCharm(ops.charm.CharmBase):
             logger.info(msg)
             self.model.unit.status = ops.model.MaintenanceStatus(msg)
 
-            # https://bugs.launchpad.net/juju/+bug/1880637
-            # self.model.pod.set_spec(spec, {'kubernetesResources': resources})
-            spec.update({"kubernetesResources": resources})
-            self.model.pod.set_spec(spec)
+            self.model.pod.set_spec(spec, {"kubernetesResources": resources})
 
             msg = "Pod configured"
             logger.info(msg)
@@ -99,8 +96,6 @@ class PostgreSQLCharm(ops.charm.CharmBase):
             {"name": "pgsql", "containerPort": 5432, "protocol": "TCP"},
         ]
 
-        expected_units = self.expected_units
-
         config_fields = {
             "JUJU_NODE_NAME": "spec.nodeName",
             "JUJU_POD_NAME": "metadata.name",
@@ -110,7 +105,7 @@ class PostgreSQLCharm(ops.charm.CharmBase):
         }
         env_config = {k: {"field": {"path": p, "api-version": "v1"}} for k, p in config_fields.items()}
 
-        env_config["JUJU_EXPECTED_UNITS"] = " ".join(expected_units)
+        env_config["JUJU_EXPECTED_UNITS"] = " ".join(self.expected_units)
         env_config["JUJU_APPLICATION"] = self.app.name
 
         vol_config = [
@@ -124,6 +119,7 @@ class PostgreSQLCharm(ops.charm.CharmBase):
                 {
                     "name": self.app.name,
                     "imageDetails": image_details,
+                    "imagePullPolicy": "Always",  # TODO: Necessary? Should this be a Juju default?
                     "ports": ports,
                     "envConfig": env_config,
                     "volumeConfig": vol_config,

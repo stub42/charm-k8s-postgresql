@@ -56,7 +56,6 @@ def fix_mounts():
     shutil.chown("/srv", user="root", group="postgres")
     os.chmod("/srv", 0o775)
 
-    # TODO: log mount not wired up correctly? Isn't appearing in mounts.
     log.info("Updating permissions and ownership of /var/log/postgresql")
     shutil.chown("/var/log/postgresql", user="root", group="postgres")
     os.chmod("/var/log/postgresql", 0o1775)
