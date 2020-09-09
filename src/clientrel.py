@@ -20,7 +20,8 @@ from typing import Iterable
 
 from charmhelpers.core import host
 import kubernetes
-import ops
+import ops.framework
+import ops.model
 import yaml
 
 from connstr import ConnectionString
@@ -136,13 +137,14 @@ class ClientRelations(ops.framework.Object):
         # Inspect requests from the client. First look in Application
         # data for modern clients. Fall back to eventually consistent
         # unit data.
-        for bucket in [event.app, event.unit]:
-            dbname = event.relation.data[bucket].get("database", "")
-            sroles = event.relation.data[bucket].get("roles", "")
-            roles = list(sroles.split(","))
-            sextensions = event.relation.data[bucket].get("extensions", "")
-            extensions = list(sextensions.split(","))
+        for bucket in [event.relation.data[event.app], event.relation.data[event.unit]]:
+            dbname = bucket.get("database", "")
+            sroles = bucket.get("roles", "")
+            roles = list(_csplit(sroles))
+            sextensions = bucket.get("extensions", "")
+            extensions = list(_csplit(sextensions))
             if dbname or roles or extensions:
+                log.info(f"Client requested {dbname=} {roles=} {extensions=}")
                 break
 
         # Fall back to a database named after the remote Application.
@@ -157,12 +159,15 @@ class ClientRelations(ops.framework.Object):
         # TODO: Meaningless in the k8s PostgreSQL charm. Can we have the
         # k8s Service limit connections? Do we want to?
         allowed_subnets = self.get_allowed_subnets(event.relation)
+        allowed_units = self.get_allowed_units(event.relation)  # Legacy protocol, deprecated
+        master_ip = self.master_service_ip
+        port = 5432
 
         # Publish connection details to the master.
         master = ConnectionString(
-            host=self.master_service_ip,
+            host=master_ip,
             dbname=dbname,
-            port=5432,
+            port=port,
             user=username,
             password=password,
             fallback_application_name=event.app.name,
@@ -171,7 +176,7 @@ class ClientRelations(ops.framework.Object):
         standbys = ConnectionString(
             host=self.standbys_service_ip,
             dbname=dbname,
-            port=5432,
+            port=port,
             user=username,
             password=password,
             fallback_application_name=event.app.name,
@@ -191,12 +196,17 @@ class ClientRelations(ops.framework.Object):
                     bucket[key] = value
 
             bset("database", dbname)
-            bset("database", dbname)
             bset("roles", sroles)
             bset("extensions", sextensions)
             bset("allowed-subnets", allowed_subnets)
             bset("master", str(master))
             bset("standbys", str(standbys))
+
+            bset("host", master_ip)  # Legacy protocol, deprecated
+            bset("port", str(port))  # Legacy protocol, deprecated
+            bset("user", username)  # Legacy protocol, deprecated
+            bset("password", password)  # Legacy protocol, deprecated
+            bset("allowed-units", allowed_units)  # Legacy protocol, deprecated
 
         self.ensure_user(username, password, admin=admin)
         self.ensure_db(dbname, username, roles, extensions)
@@ -217,6 +227,9 @@ class ClientRelations(ops.framework.Object):
             if "/" in key.name:
                 subnets.update(set(_csplit(reldata["egress-subnets"])))
         return ",".join(sorted(subnets))
+
+    def get_allowed_units(self, relation) -> str:
+        return ",".join(sorted(unit.name for unit in relation.data if isinstance(unit, ops.model.Unit)))
 
     def ensure_user(self, username, password, admin):
         log.critical("ensure_user not implemented")
