@@ -26,6 +26,7 @@ import yaml
 
 from connstr import ConnectionString
 from leadership import RichLeaderData
+import pg
 
 
 log = logging.getLogger(__name__)
@@ -124,6 +125,9 @@ class ClientRelations(ops.framework.Object):
         api = kubernetes.client.CoreV1Api(cl)
         return api.read_namespaced_service(name, self.model.name)
 
+    def on_db_admin_relation_changed(self, event):
+        self.on_db_relation_changed(event, admin=True)
+
     def on_db_relation_changed(self, event, admin=False):
         # Database username is the remote Application name.
         username = event.app.name
@@ -154,13 +158,27 @@ class ClientRelations(ops.framework.Object):
         if not dbname:
             dbname = event.app.name
 
+        is_leader = self.unit.is_leader()
+        master_ip = self.master_service_ip
+        standbys_ip = self.standbys_service_ip
+
+        if is_leader:
+            con = pg.connect(
+                ConnectionString(
+                    host=master_ip, dbname="postgres", user="postgres", password=self.charm.get_admin_password()
+                )
+            )
+            pg.ensure_user(con, username, password, superuser=admin)
+            pg.ensure_db(con, dbname, username)
+            pg.ensure_roles(con, roles)
+            pg.ensure_extensions(con, extensions)
+
         # Publish allowed-subnets to the relation, listing the
         # egress-subnets that have been granted access.
         # TODO: Meaningless in the k8s PostgreSQL charm. Can we have the
         # k8s Service limit connections? Do we want to?
         allowed_subnets = self.get_allowed_subnets(event.relation)
         allowed_units = self.get_allowed_units(event.relation)  # Legacy protocol, deprecated
-        master_ip = self.master_service_ip
         port = 5432
 
         # Publish connection details to the master.
@@ -174,7 +192,7 @@ class ClientRelations(ops.framework.Object):
             sslmode="prefer",
         )
         standbys = ConnectionString(
-            host=self.standbys_service_ip,
+            host=standbys_ip,
             dbname=dbname,
             port=port,
             user=username,
@@ -187,32 +205,27 @@ class ClientRelations(ops.framework.Object):
         # have been made. On Application data for modern clients, and
         # unit data for backwards compatibility.
         to_publish = [event.relation.data[self.unit]]
-        if self.unit.is_leader():
+        if is_leader:
             to_publish.append(event.relation.data[self.app])
         for bucket in to_publish:
-            # Workaround for https://github.com/canonical/operator/pull/399/files
-            def bset(key, value):
-                if value or key in bucket:
-                    bucket[key] = value
+            bset(bucket, "database", dbname)
+            bset(bucket, "roles", sroles)
+            bset(bucket, "extensions", sextensions)
+            bset(bucket, "allowed-subnets", allowed_subnets)
+            bset(bucket, "master", str(master))
+            bset(bucket, "standbys", str(standbys))
 
-            bset("database", dbname)
-            bset("roles", sroles)
-            bset("extensions", sextensions)
-            bset("allowed-subnets", allowed_subnets)
-            bset("master", str(master))
-            bset("standbys", str(standbys))
-
-            bset("host", master_ip)  # Legacy protocol, deprecated
-            bset("port", str(port))  # Legacy protocol, deprecated
-            bset("user", username)  # Legacy protocol, deprecated
-            bset("password", password)  # Legacy protocol, deprecated
-            bset("allowed-units", allowed_units)  # Legacy protocol, deprecated
-
-        self.ensure_user(username, password, admin=admin)
-        self.ensure_db(dbname, username, roles, extensions)
-
-    def on_db_admin_relation_changed(self, event):
-        self.on_db_relation_changed(event, admin=True)
+            # Legacy protocol for antique clients, deprecated.
+            if is_leader:
+                bset(bucket, "host", master_ip)
+                bset(bucket, "state", "master")
+            else:
+                bset(bucket, "host", standbys_ip)
+                bset(bucket, "state", "hot standby")
+            bset(bucket, "port", str(port))
+            bset(bucket, "user", username)
+            bset(bucket, "password", password)
+            bset(bucket, "allowed-units", allowed_units)
 
     def db_password(self, username):
         if username not in self.passwords:
@@ -231,11 +244,11 @@ class ClientRelations(ops.framework.Object):
     def get_allowed_units(self, relation) -> str:
         return ",".join(sorted(unit.name for unit in relation.data if isinstance(unit, ops.model.Unit)))
 
-    def ensure_user(self, username, password, admin):
-        log.critical("ensure_user not implemented")
 
-    def ensure_db(self, dbname, ownername, roles, extensions):
-        log.critical("ensure_db not implemented")
+# Workaround for https://github.com/canonical/operator/pull/399/files
+def bset(bucket, key, value):
+    if value or key in bucket:
+        bucket[key] = value
 
 
 def _csplit(s) -> Iterable[str]:

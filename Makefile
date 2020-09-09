@@ -44,7 +44,7 @@ clean:
 	@echo "Cleaning files"
 	git clean -fXd
 
-postgresql.charm: src/*.py requirements.txt *.yaml
+postgresql.charm: dispatch src/*.py requirements.txt *.yaml .jujuignore
 	charmcraft build
 
 image-deps:
