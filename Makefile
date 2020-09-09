@@ -35,7 +35,7 @@ lint: blacken
 
 # We actually use the build directory created by charmcraft,
 # but the .charm file makes a much more convenient sentinel.
-unittest: bind.charm
+unittest: postgresql.charm
 	tox -e unit
 
 test: lint unittest

@@ -14,35 +14,28 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import unittest
-from unittest.mock import Mock
 
 from ops.testing import Harness
-from charm import PostgresqlCharm
+from charm import PostgreSQLCharm
+
+
+CONFIG_NO_IMAGE = {
+    "image": "",
+    "image_username": "",
+    "image_password": "",
+}
 
 
 class TestCharm(unittest.TestCase):
-    def test_config_changed(self):
-        harness = Harness(PostgresqlCharm)
-        # from 0.8 you should also do:
-        # self.addCleanup(harness.cleanup)
-        harness.begin()
-        self.assertEqual(list(harness.charm._stored.things), [])
-        harness.update_config({"thing": "foo"})
-        self.assertEqual(list(harness.charm._stored.things), ["foo"])
+    def setUp(self):
+        """Setup the test harness."""
+        self.harness = Harness(PostgreSQLCharm)
+        self.harness.begin()
+        self.harness.disable_hooks()
+        self.maxDiff = None
 
-    def test_action(self):
-        harness = Harness(PostgresqlCharm)
-        harness.begin()
-        # the harness doesn't (yet!) help much with actions themselves
-        action_event = Mock(params={"fail": ""})
-        harness.charm._on_fortune_action(action_event)
-
-        self.assertTrue(action_event.set_result.called)
-
-    def test_action_fail(self):
-        harness = Harness(PostgresqlCharm)
-        harness.begin()
-        action_event = Mock(params={"fail": "fail this"})
-        harness.charm._on_fortune_action(action_event)
-
-        self.assertEqual(action_event.fail.call_args, [("fail this",)])
+    def test_check_for_empty_config_no_image(self):
+        """Check for correctly reported empty required image."""
+        self.harness.update_config(CONFIG_NO_IMAGE)
+        expected = "required setting(s) empty: image"
+        self.assertEqual(self.harness.charm._check_for_config_problems(), expected)
