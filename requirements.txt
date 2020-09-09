@@ -15,4 +15,5 @@
 
 ops >= 0.9.0
 charmhelpers
+kubernetes
 pyyaml

@@ -12,17 +12,6 @@ TODO: explain how to use the charm
 
 ...
 
-## Developing
-
-Create and activate a virtualenv,
-and install the development requirements,
-
-    virtualenv -p python3 venv
-    source venv/bin/activate
-    pip install -r requirements-dev
-
 ## Testing
 
-Just run `run_tests`:
-
-    ./run_tests
+Just run `make test`.
