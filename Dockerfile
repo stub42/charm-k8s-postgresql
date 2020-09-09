@@ -15,18 +15,11 @@
 
 ARG DIST_RELEASE=focal
 
-# FROM golang:1.14 AS gobuilder
-# WORKDIR /go
-# RUN go get -v k8s.io/kubernetes/cmd/kubectl
-
 FROM ubuntu:${DIST_RELEASE}
 
 LABEL maintainer="postgresql-charmers@lists.launchpad.net"
 ENTRYPOINT ["/usr/local/bin/docker_entrypoint.py"]
 EXPOSE 5432/tcp
-
-# COPY --from=gobuilder /go/bin/kubectl /usr/local/bin/
-# RUN chmod 0755 /usr/local/bin/kubectl
 
 RUN \
 # Avoid interactive prompts.
@@ -76,10 +69,10 @@ RUN \
 # Docker volumes are probably pointless, overriddden by k8s volumes
 VOLUME ["/srv", "/var/log/postgresql"]
 
-COPY ./files/docker_entrypoint.py /usr/local/bin/
+COPY ./files/docker/docker_entrypoint.py /usr/local/bin/
 RUN chmod 0755 /usr/local/bin/docker_entrypoint.py
 
-# COPY ./files/docker-readyness.sh /usr/local/bin/
+# COPY ./files/docker/docker-readyness.sh /usr/local/bin/
 # RUN chmod 0755 /usr/local/bin/docker-readyness.sh
 
 # BUILD_DATE has a default set due to

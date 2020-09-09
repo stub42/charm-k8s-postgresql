@@ -1,11 +1,12 @@
 *~
 .coverage
 __pycache__
-/dockerfile
+/Dockerfile
 /image-scripts/
 /tests/
 /Makefile
 /env
+/files/docker/
 *.py[cod]
 *.charm
 .pgimg.tar
