@@ -100,7 +100,8 @@ def ensure_db(con: PGConnection, dbname: str, ownername: str):
         cur.execute("CREATE DATABASE %s OWNER %s", (pgidentifier(dbname), pgidentifier(ownername)))
     else:
         cur.execute(
-            "ALTER DATABASE %s OWNER TO %s", (pgidentifier(dbname), pgidentifier(ownername)),
+            "ALTER DATABASE %s OWNER TO %s",
+            (pgidentifier(dbname), pgidentifier(ownername)),
         )
     grant_database_privileges(con, ownername, dbname, ["ALL"])
 
@@ -109,7 +110,8 @@ def grant_database_privileges(con, role, dbname, privs):
     cur = con.cursor()
     for priv in privs:
         cur.execute(
-            "GRANT %s ON DATABASE %s TO %s", (AsIs(priv), pgidentifier(dbname), pgidentifier(role)),
+            "GRANT %s ON DATABASE %s TO %s",
+            (AsIs(priv), pgidentifier(dbname), pgidentifier(role)),
         )
 
 
@@ -139,7 +141,8 @@ def ensure_extensions(con, extensions: Iterable[str]):
             cur.execute("CREATE SCHEMA IF NOT EXISTS %s", (pgidentifier(schema),))
             cur.execute("GRANT USAGE ON SCHEMA %s TO PUBLIC", (pgidentifier(schema),))
         cur.execute(
-            "CREATE EXTENSION %s WITH SCHEMA %s", (pgidentifier(ext), pgidentifier(schema)),
+            "CREATE EXTENSION %s WITH SCHEMA %s",
+            (pgidentifier(ext), pgidentifier(schema)),
         )
 
 

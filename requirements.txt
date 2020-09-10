@@ -16,4 +16,5 @@
 ops >= 0.9.0
 charmhelpers
 kubernetes
+psycopg2-binary
 pyyaml
