@@ -151,6 +151,8 @@ class PostgreSQLCharm(ops.charm.CharmBase):
 
         resources = {
             "secrets": [{"name": "charm-secrets", "type": "Opaque", "data": secrets_data}],
+            # TODO: How to only make the services externally available
+            # only after 'juju expose'?
             "services": [
                 {
                     "name": self.client_relations.master_service_name,
