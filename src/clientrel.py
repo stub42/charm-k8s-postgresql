@@ -22,7 +22,6 @@ from charmhelpers.core import host
 import kubernetes
 import ops.framework
 import ops.model
-import yaml
 
 from connstr import ConnectionString
 from leadership import RichLeaderData
@@ -40,8 +39,6 @@ class ClientRelations(ops.framework.Object):
 
         self.unit = self.model.unit
         self.app = self.model.app
-
-        self.framework.observe(charm.on.start, self.create_k8s_services)
 
         self.framework.observe(charm.on["db"].relation_changed, self.on_db_relation_changed)
         self.framework.observe(charm.on["db-admin"].relation_changed, self.on_db_admin_relation_changed)
@@ -73,51 +70,6 @@ class ClientRelations(ops.framework.Object):
     @property
     def standbys_service_ip(self) -> str:
         return self.get_k8s_service(self.standbys_service_name).spec.cluster_ip
-
-    def create_k8s_services(self, event) -> None:
-        """Create required k8s Services
-
-        There doesn't seem to be a documented way of creating a K8s
-        Service via pod-set-spec, so do it manually via the K8s API.
-        """
-        self.k8s_auth()
-
-        # Instantiate a client and the API we need
-        cl = kubernetes.client.ApiClient()
-        api = kubernetes.client.CoreV1Api(cl)
-
-        service = {
-            "metadata": {"name": self.master_service_name},
-            "spec": {
-                "type": "NodePort",  # NodePort to enable external connections
-                "external_traffic_policy": "Local",  # "Cluster" for more even load balancing
-                "ports": [{"name": "pgsql", "port": 5432, "protocol": "TCP"}],
-                "selector": {"juju-app": self.app.name, "role": "master"},
-            },
-        }
-
-        log.info(f"master Service definition <<EOM\n{yaml.dump(service)}\nEOM")
-        try:
-            api.create_namespaced_service(self.model.name, service)
-        except kubernetes.client.rest.ApiException as e:
-            # How to write a crap REST API: require clients to sniff
-            # HTTP status codes rather than provide a meaningful
-            # exception heirarchy.
-            if e.status != 409:
-                raise
-
-        service["metadata"]["name"] = self.standbys_service_name
-        service["spec"]["selector"]["role"] = "standby"
-
-        log.info(f"standbys Service definition <<EOM\n{yaml.dump(service)}\nEOM")
-        try:
-            api.create_namespaced_service(self.model.name, service)
-        except kubernetes.client.rest.ApiException as e:
-            # How to write a crap REST API: require clients to sniff
-            # HTTP status codes rather than provide a meaningful
-            # exception heirarchy.
-            if e.status != 409:
-                raise
 
     def get_k8s_service(self, name):
         self.k8s_auth()

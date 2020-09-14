@@ -148,9 +148,31 @@ class PostgreSQLCharm(ops.charm.CharmBase):
     def make_pod_resources(self) -> Dict:
         """Compile and return our pod resources (e.g. ingresses)."""
         secrets_data = {}  # Fill dictionary with secrets after logging resources
-        resources = {"secrets": [{"name": "charm-secrets", "type": "Opaque", "data": secrets_data}]}
+
+        resources = {
+            "secrets": [{"name": "charm-secrets", "type": "Opaque", "data": secrets_data}],
+            "services": [
+                {
+                    "name": self.client_relations.master_service_name,
+                    "spec": {
+                        "type": "NodePort",  # NodePort to enable external connections
+                        "ports": [{"name": "pgsql", "port": 5432, "protocol": "TCP"}],
+                        "selector": {"juju-app": self.app.name, "role": "master"},
+                    },
+                },
+                {
+                    "name": self.client_relations.standbys_service_name,
+                    "spec": {
+                        "type": "NodePort",  # NodePort to enable external connections
+                        "ports": [{"name": "pgsql", "port": 5432, "protocol": "TCP"}],
+                        "selector": {"juju-app": self.app.name, "role": "standby"},
+                    },
+                },
+            ],
+        }
         log.info(f"Pod resources <<EOM\n{yaml.dump(resources)}\nEOM")
 
+        # Fill secrets dict with secrets.
         secrets = {"pgsql-admin-password": self.get_admin_password()}
         for k, v in secrets.items():
             secrets_data[k] = b64encode(v.encode("UTF-8")).decode("UTF-8")

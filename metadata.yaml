@@ -23,7 +23,7 @@ summary: >
   Don't use this, it isn't ready.
 maintainers:
   - postgresql-charmers@lists.launchpad.net
-min-juju-version: 2.8.0
+min-juju-version: 2.8.2
 series:
   - kubernetes
 provides:
