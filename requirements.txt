@@ -17,3 +17,5 @@ ops >= 0.9.0
 charmhelpers
 kubernetes
 pyyaml
+tenacity
+psycopg2-binary

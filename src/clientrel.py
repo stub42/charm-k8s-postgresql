@@ -20,6 +20,7 @@ from typing import Iterable
 
 from charmhelpers.core import host
 import kubernetes
+from kubernetes.client.rest import ApiException as K8sApiException
 import ops.framework
 import ops.model
 
@@ -65,17 +66,28 @@ class ClientRelations(ops.framework.Object):
 
     @property
     def master_service_ip(self) -> str:
-        return self.get_k8s_service(self.master_service_name).spec.cluster_ip
+        svc = self.get_k8s_service(self.master_service_name)
+        if svc is None:
+            return None
+        return svc.spec.cluster_ip
 
     @property
     def standbys_service_ip(self) -> str:
-        return self.get_k8s_service(self.standbys_service_name).spec.cluster_ip
+        svc = self.get_k8s_service(self.standbys_service_name)
+        if svc is None:
+            return None
+        return svc.spec.cluster_ip
 
     def get_k8s_service(self, name):
         self.k8s_auth()
         cl = kubernetes.client.ApiClient()
         api = kubernetes.client.CoreV1Api(cl)
-        return api.read_namespaced_service(name, self.model.name)
+        try:
+            return api.read_namespaced_service(name, self.model.name)
+        except K8sApiException as e:
+            if e.status == 404:
+                return None
+            raise
 
     def on_db_admin_relation_changed(self, event):
         self.on_db_relation_changed(event, admin=True)
@@ -84,9 +96,14 @@ class ClientRelations(ops.framework.Object):
         # Database username is the remote Application name.
         username = event.app.name
 
-        # Password
         password = self.db_password(username)
-        if not password:
+        master_ip = self.master_service_ip
+        standbys_ip = self.standbys_service_ip
+        if not password or master_ip is None or standbys_ip is None:
+            # Leader will set the password and create the service in
+            # the first hook. But maybe invalid config caused
+            # pod-set-spec to not be run yet, or similar.
+            log.info("Waiting for leader")
             event.defer()  # Wait for leader to choose the password.
             return
 
@@ -111,9 +128,6 @@ class ClientRelations(ops.framework.Object):
             dbname = event.app.name
 
         is_leader = self.unit.is_leader()
-        master_ip = self.master_service_ip
-        standbys_ip = self.standbys_service_ip
-
         if is_leader:
             con = pg.connect(
                 ConnectionString(

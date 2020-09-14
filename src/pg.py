@@ -16,10 +16,13 @@
 import functools
 import logging
 import re
-from typing import Iterable
+from typing import Any, Iterable
 
 import psycopg2
 import psycopg2.extensions
+from tenacity import before_log, retry, retry_if_exception_type, stop_after_delay, wait_random_exponential
+
+from connstr import ConnectionString
 
 
 log = logging.getLogger(__name__)
@@ -27,7 +30,14 @@ log = logging.getLogger(__name__)
 PGConnection = psycopg2.extensions.connection
 
 
-def connect(conn_str) -> PGConnection:
+@retry(
+    retry=retry_if_exception_type(psycopg2.OperationalError),
+    stop=stop_after_delay(120),
+    wait=wait_random_exponential(multiplier=1, max=12),
+    reraise=True,
+    before=before_log(log, logging.DEBUG),
+)
+def connect(conn_str: ConnectionString) -> PGConnection:
     con = psycopg2.connect(str(conn_str))
     con.autocommit = True
     return con
@@ -70,15 +80,8 @@ def grant_user_roles(con: PGConnection, username: str, roles: Iterable[str]):
     cur = con.cursor()
     cur.execute(
         """
-        SELECT role.rolname
-        FROM
-            pg_roles AS role,
-            pg_roles AS member,
-            pg_auth_members
-        WHERE
-            member.oid = pg_auth_members.member
-            AND role.oid = pg_auth_members.roleid
-            AND member.rolname = %s
+        SELECT role.rolname FROM pg_roles AS role, pg_roles AS member, pg_auth_members
+        WHERE member.oid = pg_auth_members.member AND role.oid = pg_auth_members.roleid AND member.rolname = %s
         """,
         (username,),
     )
@@ -99,18 +102,14 @@ def ensure_db(con: PGConnection, dbname: str, ownername: str):
     if cur.fetchone() is None:
         cur.execute("CREATE DATABASE %s OWNER %s", (pgidentifier(dbname), pgidentifier(ownername)))
     else:
-        cur.execute(
-            "ALTER DATABASE %s OWNER TO %s", (pgidentifier(dbname), pgidentifier(ownername)),
-        )
+        cur.execute("ALTER DATABASE %s OWNER TO %s", (pgidentifier(dbname), pgidentifier(ownername)))
     grant_database_privileges(con, ownername, dbname, ["ALL"])
 
 
-def grant_database_privileges(con, role, dbname, privs):
+def grant_database_privileges(con: PGConnection, role: str, dbname: str, privs: Iterable[str]):
     cur = con.cursor()
     for priv in privs:
-        cur.execute(
-            "GRANT %s ON DATABASE %s TO %s", (AsIs(priv), pgidentifier(dbname), pgidentifier(role)),
-        )
+        cur.execute("GRANT %s ON DATABASE %s TO %s", (AsIs(priv), pgidentifier(dbname), pgidentifier(role)))
 
 
 def ensure_extensions(con, extensions: Iterable[str]):
@@ -125,10 +124,7 @@ def ensure_extensions(con, extensions: Iterable[str]):
         extensions[i] = (m.group(1), m.group(2) or "public")
 
     cur = con.cursor()
-    cur.execute(
-        """SELECT extname,nspname FROM pg_extension,pg_namespace
-                   WHERE pg_namespace.oid = extnamespace"""
-    )
+    cur.execute("SELECT extname,nspname FROM pg_extension,pg_namespace WHERE pg_namespace.oid = extnamespace")
     installed_extensions = frozenset((x[0], x[1]) for x in cur.fetchall())
     log.debug(f"ensure_extensions({extensions}), have {installed_extensions}")
     extensions_set = frozenset(set(extensions))
@@ -138,9 +134,7 @@ def ensure_extensions(con, extensions: Iterable[str]):
         if schema != "public":
             cur.execute("CREATE SCHEMA IF NOT EXISTS %s", (pgidentifier(schema),))
             cur.execute("GRANT USAGE ON SCHEMA %s TO PUBLIC", (pgidentifier(schema),))
-        cur.execute(
-            "CREATE EXTENSION %s WITH SCHEMA %s", (pgidentifier(ext), pgidentifier(schema)),
-        )
+        cur.execute("CREATE EXTENSION %s WITH SCHEMA %s", (pgidentifier(ext), pgidentifier(schema)))
 
 
 @functools.total_ordering
@@ -154,14 +148,14 @@ class AsIs(psycopg2.extensions.ISQLQuote):
     def getquoted(self):
         return str(self._wrapped).encode("UTF8")
 
-    def __conform__(self, protocol):
+    def __conform__(self, protocol: Any):
         if protocol is psycopg2.extensions.ISQLQuote:
             return self
 
-    def __eq__(self, other):
+    def __eq__(self, other: Any):
         return self._wrapped == other
 
-    def __lt__(self, other):
+    def __lt__(self, other: Any):
         return self._wrapped < other
 
     def __str__(self):
@@ -171,7 +165,7 @@ class AsIs(psycopg2.extensions.ISQLQuote):
         return "{}({!r})".format(self.__class__.__name__, self._wrapped)
 
 
-def quote_identifier(identifier):
+def quote_identifier(identifier: str):
     r'''Quote an identifier, such as a table or role name.
 
     In SQL, identifiers are quoted using " rather than ' (which is reserved
@@ -215,6 +209,6 @@ def quote_identifier(identifier):
         return 'U&"%s"' % "".join(escaped)
 
 
-def pgidentifier(token):
+def pgidentifier(token: str):
     """Wrap a string for interpolation by psycopg2 as an SQL identifier"""
     return AsIs(quote_identifier(token))

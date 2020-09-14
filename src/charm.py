@@ -98,6 +98,10 @@ class PostgreSQLCharm(ops.charm.CharmBase):
             "imagePath": config["image"],
         }
 
+        # This is required, although it should not be exposed.
+        # Connections will work, but will be to a random pod. Instead
+        # client connections need to go via the $appname-master and
+        # $appname-standbys k8s Services.
         ports = [
             {"name": "pgsql", "containerPort": 5432, "protocol": "TCP"},
         ]
@@ -130,8 +134,9 @@ class PostgreSQLCharm(ops.charm.CharmBase):
                     "envConfig": env_config,
                     "volumeConfig": vol_config,
                     # "kubernetes": {"readinessProbe": {"exec": {"command": ["/usr/local/bin/docker-readyness.sh"]}}},
-                    # "kubernetes": {"readinessProbe": {"tcpSocket":
-                    #     {"port": 5432, "initialDelaySeconds": 10, "periodSeconds": 25}}},
+                    "kubernetes": {
+                        "readinessProbe": {"tcpSocket": {"port": 5432}, "initialDelaySeconds": 3, "periodSeconds": 3}
+                    },
                 }
             ],
         }
