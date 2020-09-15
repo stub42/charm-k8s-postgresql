@@ -79,9 +79,6 @@ VOLUME ["/srv", "/var/log/postgresql"]
 COPY ./files/docker_entrypoint.py /usr/local/bin/
 RUN chmod 0755 /usr/local/bin/docker_entrypoint.py
 
-# COPY ./files/docker-readyness.sh /usr/local/bin/
-# RUN chmod 0755 /usr/local/bin/docker-readyness.sh
-
 # BUILD_DATE has a default set due to
 # https://bugs.launchpad.net/launchpad/+bug/1892351.
 ARG BUILD_DATE=unset
