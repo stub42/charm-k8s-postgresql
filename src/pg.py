@@ -32,8 +32,8 @@ PGConnection = psycopg2.extensions.connection
 
 @retry(
     retry=retry_if_exception_type(psycopg2.OperationalError),
-    stop=stop_after_delay(120),
-    wait=wait_random_exponential(multiplier=1, max=12),
+    stop=stop_after_delay(300),
+    wait=wait_random_exponential(multiplier=1, max=15),
     reraise=True,
     before=before_log(log, logging.DEBUG),
 )

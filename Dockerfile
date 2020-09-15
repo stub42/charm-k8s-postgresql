@@ -15,18 +15,11 @@
 
 ARG DIST_RELEASE=focal
 
-# FROM golang:1.14 AS gobuilder
-# WORKDIR /go
-# RUN go get -v k8s.io/kubernetes/cmd/kubectl
-
 FROM ubuntu:${DIST_RELEASE}
 
 LABEL maintainer="postgresql-charmers@lists.launchpad.net"
 ENTRYPOINT ["/usr/local/bin/docker_entrypoint.py"]
 EXPOSE 5432/tcp
-
-# COPY --from=gobuilder /go/bin/kubectl /usr/local/bin/
-# RUN chmod 0755 /usr/local/bin/kubectl
 
 RUN \
 # Avoid interactive prompts.
@@ -48,6 +41,7 @@ RUN \
 # Ensure pg_createcluster works the way we need, disable initial cluster
 # creation. NB. .conf extension is required.
 COPY ./files/createcluster.conf /etc/postgresql-common/createcluster.d/pgcharm.conf
+RUN chmod 0644 /etc/postgresql-common/createcluster.d/pgcharm.conf
 
 ARG PG_MAJOR=12
 
@@ -78,6 +72,12 @@ VOLUME ["/srv", "/var/log/postgresql"]
 
 COPY ./files/docker_entrypoint.py /usr/local/bin/
 RUN chmod 0755 /usr/local/bin/docker_entrypoint.py
+COPY ./files/repmgr_promote_command.py /usr/local/bin/
+RUN chmod 0755 /usr/local/bin/repmgr_promote_command.py
+COPY ./files/repmgr_follow_command.py /usr/local/bin/
+RUN chmod 0755 /usr/local/bin/repmgr_follow_command.py
+COPY ./files/pgcharm.py /usr/local/lib/python3.8/dist-packages
+RUN chmod 0644 /usr/local/lib/python3.8/dist-packages/pgcharm.py
 
 # BUILD_DATE has a default set due to
 # https://bugs.launchpad.net/launchpad/+bug/1892351.
