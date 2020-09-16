@@ -154,28 +154,53 @@ class PostgreSQLCharm(ops.charm.CharmBase):
         """Compile and return our pod resources (e.g. ingresses)."""
         secrets_data = {}  # Fill dictionary with secrets after logging resources
 
+        services = [
+            {
+                "name": self.client_relations.master_service_name,
+                "spec": {
+                    "type": "NodePort",  # NodePort to enable external connections
+                    "ports": [{"name": "pgsql", "port": 5432, "protocol": "TCP"}],
+                    "selector": {"juju-app": self.app.name, "role": "master"},
+                },
+            },
+            {
+                "name": self.client_relations.standbys_service_name,
+                "spec": {
+                    "type": "NodePort",  # NodePort to enable external connections
+                    "ports": [{"name": "pgsql", "port": 5432, "protocol": "TCP"}],
+                    "selector": {"juju-app": self.app.name, "role": "standby"},
+                },
+            },
+        ]
+        # Standby databases need to be able to reference the master via
+        # DNS lookup, rather than IP addresses, because the IP addresses
+        # change (and even if pods monitored for the changes to the
+        # current master, the db would need to be restarted after being
+        # reconfigured and the repmgr cluster repaired). To enable
+        # DNS, we need to create a unique k8s Service per pod that
+        # references only that pod's PostgreSQL instance, and use these
+        # service IPs instead of the pod IP addresses.
+        for unit in self.expected_units:
+            pod = unit.replace("/", "-")
+            services.append(
+                {
+                    "name": f"{self.app.name}-{pod}",
+                    "spec": {
+                        "type": "ClusterIP",
+                        "clusterIP": "None",  # Headless, just use pod IP.
+                        "ports": [{"name": "pgsql", "port": 5432, "protocol": "TCP"}],
+                        "publishNotReadyAddresses": True,
+                        # The pod adds the pgcharm-pod label to itself.
+                        "selector": {"juju-app": self.app.name, "pgcharm-pod": pod},
+                    },
+                }
+            )
+
         resources = {
             "secrets": [{"name": "charm-secrets", "type": "Opaque", "data": secrets_data}],
-            # TODO: How to only make the services externally available
-            # only after 'juju expose'?
-            "services": [
-                {
-                    "name": self.client_relations.master_service_name,
-                    "spec": {
-                        "type": "NodePort",  # NodePort to enable external connections
-                        "ports": [{"name": "pgsql", "port": 5432, "protocol": "TCP"}],
-                        "selector": {"juju-app": self.app.name, "role": "master"},
-                    },
-                },
-                {
-                    "name": self.client_relations.standbys_service_name,
-                    "spec": {
-                        "type": "NodePort",  # NodePort to enable external connections
-                        "ports": [{"name": "pgsql", "port": 5432, "protocol": "TCP"}],
-                        "selector": {"juju-app": self.app.name, "role": "standby"},
-                    },
-                },
-            ],
+            # TODO: How to only make the master and standbys services
+            # externally available only after 'juju expose'?
+            "services": services,
         }
         log.info(f"Pod resources <<EOM\n{yaml.dump(resources)}\nEOM")
 

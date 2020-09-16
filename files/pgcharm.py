@@ -91,10 +91,10 @@ def maybe_create_db() -> bool:
 
 
 def clone_master(master):
-    master_ip = get_pod_ip(master)
-    log.info(f"Cloning database from {master} ({master_ip})")
+    master_hostname = get_pod_hostname(master)
+    log.info(f"Cloning database from {master} ({master_hostname})")
     shutil.rmtree(PGDATA)
-    cmd = REPMGR_CMD + ["-h", master_ip, "-U", "repmgr", "-d", "repmgr", "standby", "clone", "-c"]
+    cmd = REPMGR_CMD + ["-h", master_hostname, "-U", "repmgr", "-d", "repmgr", "standby", "clone", "-c"]
     log.info(f"Running {' '.join(cmd)}")
     subprocess.run(cmd, check=True, text=True)
 
@@ -202,7 +202,7 @@ def update_pgpass():
 
 def update_repmgr_conf():
     log.info(f"Updating repmgr configuration in {REPMGR_CONF}")
-    ip = get_pod_ip(JUJU_POD_NAME)
+    hostname = get_pod_hostname(JUJU_POD_NAME)
     with open(REPMGR_CONF, "w") as outf:
         outf.write(
             dedent(
@@ -222,7 +222,7 @@ def update_repmgr_conf():
                 log_status_interval=300
 
                 # Secret pulled from ~/.pgpass
-                conninfo='host={ip} user=repmgr dbname=repmgr connect_timeout=2'
+                conninfo='host={hostname} user=repmgr dbname=repmgr connect_timeout=2'
 
                 # We do not set a location. We would need 2 nodes (or
                 # one node + one witness) in each location or failover
@@ -342,11 +342,24 @@ def set_standby():
     api.patch_namespaced_pod(JUJU_POD_NAME, NAMESPACE, {"metadata": {"labels": {"role": "standby"}}})
 
 
-def get_pod_ip(name) -> str:
+def set_pod_label():
+    key = "pgcharm-pod"
+    value = JUJU_POD_NAME
+    log.info(f"Labeling this pod as {key}={value} for service discovery")
     cl = kubernetes.client.ApiClient()
     api = kubernetes.client.CoreV1Api(cl)
-    pod = api.read_namespaced_pod(name, NAMESPACE)
-    return pod.status.pod_ip
+    api.patch_namespaced_pod(JUJU_POD_NAME, NAMESPACE, {"metadata": {"labels": {key: value}}})
+
+
+def get_pod_hostname(name) -> str:
+    return f"{JUJU_APPLICATION}-{name}"
+
+
+# def get_pod_ip(name) -> str:
+#     cl = kubernetes.client.ApiClient()
+#     api = kubernetes.client.CoreV1Api(cl)
+#     pod = api.read_namespaced_pod(name, NAMESPACE)
+#     return pod.status.pod_ip
 
 
 def init_logging():
@@ -354,9 +367,23 @@ def init_logging():
     log.setLevel(logging.DEBUG)
 
 
+def debug_docker_entrypoint():
+    import time
+    import traceback
+
+    try:
+        docker_entrypoint()
+    except Exception:
+        traceback.print_exc()
+        while True:
+            time.sleep(600)
+
+
 def docker_entrypoint():
     init_logging()
     configure_k8s_api()
+
+    set_pod_label()  # Label pod to match the pod-unique Service selector.
 
     # Repmgr is configured to log to a file, because the history might
     # be needed for disaster recovery. But it is also useful for output
@@ -377,6 +404,7 @@ def docker_entrypoint():
 
     start_db()  # TODO: Ensure DB shutdown cleanly
 
+    # TODO: Wait until DB is available, via DNS lookup.
     if is_master():
         update_repmgr_db()
         register_repmgr_master()
