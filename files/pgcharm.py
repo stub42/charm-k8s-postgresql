@@ -24,6 +24,7 @@ import time
 
 import kubernetes
 import psycopg2
+from tenacity import before_log, retry, retry_if_exception_type, stop_after_delay, wait_random_exponential
 
 
 PGDATA = os.environ["PGDATA"]  # No underscore, PostgreSQL config
@@ -44,7 +45,7 @@ JUJU_EXPECTED_UNITS = os.environ["JUJU_EXPECTED_UNITS"].split(" ")
 NAMESPACE = os.environ["JUJU_POD_NAMESPACE"]
 HOSTNAME = os.environ["HOSTNAME"]
 
-AS_PG_CMD = ["sudo", "-u", "postgres", "-H", "--"]
+AS_PG_CMD = ["sudo", "-u", "postgres", "-EH", "--"]
 REPMGR_CMD = AS_PG_CMD + ["repmgr", "-f", REPMGR_CONF]
 
 log = logging.getLogger(__name__)
@@ -244,6 +245,14 @@ def update_repmgr_conf():
     os.chmod(REPMGR_CONF, 0o644)
 
 
+# Retry in case local PostgreSQL is still starting up.
+@retry(
+    retry=retry_if_exception_type(psycopg2.OperationalError),
+    stop=stop_after_delay(300),
+    wait=wait_random_exponential(multiplier=1, max=15),
+    reraise=True,
+    before=before_log(log, logging.DEBUG),
+)
 def update_repmgr_db():
     log.info(f"Resetting repmgr database user password")
     con = psycopg2.connect("dbname=postgres user=postgres")
@@ -274,10 +283,28 @@ def register_repmgr_master():
     subprocess.run(cmd, check=True, text=True)
 
 
-def register_repmgr_standby():
-    log.info(f"Registering PostgreSQL hot standby server with repmgr")
+# Retry in case the master is not running, or gets shut down midway.
+@retry(
+    stop=stop_after_delay(300),
+    wait=wait_random_exponential(multiplier=1, max=15),
+    reraise=True,
+    before=before_log(log, logging.DEBUG),
+)
+def register_repmgr_standby(master):
+    log.info(f"Registering PostgreSQL hot standby server with {master}")
     # Always reregister with force, as our IP address might have changed.
-    cmd = REPMGR_CMD + ["standby", "register", "--force", "--wait-sync=60"]
+    cmd = REPMGR_CMD + [
+        "standby",
+        "register",
+        "--force",
+        "--wait-sync=60",
+        "-h",
+        get_pod_hostname(master),
+        "-U",
+        "repmgr",
+        "-d",
+        "repmgr",
+    ]
     log.info(f"Running {' '.join(cmd)}")
     subprocess.run(cmd, check=True, text=True)
 
@@ -404,7 +431,6 @@ def docker_entrypoint():
 
     start_db()  # TODO: Ensure DB shutdown cleanly
 
-    # TODO: Wait until DB is available, via DNS lookup.
     if is_master():
         update_repmgr_db()
         register_repmgr_master()
@@ -412,7 +438,8 @@ def docker_entrypoint():
         # pods to continue.
         set_master()
     else:
-        register_repmgr_standby()
+        master = wait_master()
+        register_repmgr_standby(master)
         set_standby()
 
     exec_repmgrd()  # Does not return
@@ -428,8 +455,8 @@ def exec_repmgrd():
 def promote_entrypoint():
     init_logging()
     configure_k8s_api()
+    set_master()  # First, lessening chance connections go to an existing master.
     subprocess.check_call(["repmgr", "standby", "promote", "-v", "-f", REPMGR_CONF, "--log-to-file"], text=True)
-    set_master()
 
 
 def follow_entrypoint():
@@ -450,7 +477,7 @@ def follow_entrypoint():
         ],
         text=True,
     )
-    set_master()
+    set_standby()
 
 
 def hang_forever():
