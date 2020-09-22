@@ -12,6 +12,5 @@ __pycache__
 /Makefile
 /.pgimg.tar
 /pyproject.toml
-/Makefile
 /tox.ini
 /.tox/

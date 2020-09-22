@@ -25,6 +25,12 @@ CONFIG_NO_IMAGE = {
     "image_password": "",
 }
 
+CONFIG_NO_IMAGE_PASSWORD = {
+    "image": "humptydumpty",
+    "image_username": "grandolddukeofyork",
+    "image_password": "",
+}
+
 
 class TestCharm(unittest.TestCase):
     def setUp(self):
@@ -38,4 +44,10 @@ class TestCharm(unittest.TestCase):
         """Check for correctly reported empty required image."""
         self.harness.update_config(CONFIG_NO_IMAGE)
         expected = "required setting(s) empty: image"
+        self.assertEqual(self.harness.charm._check_for_config_problems(), expected)
+
+    def test_check_for_missing_config_no_image_password(self):
+        """Check for correctly reported empty required image_password."""
+        self.harness.update_config(CONFIG_NO_IMAGE_PASSWORD)
+        expected = "required setting(s) empty: image_password"
         self.assertEqual(self.harness.charm._check_for_config_problems(), expected)
