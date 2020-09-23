@@ -118,6 +118,7 @@ def initdb():
         "--locale=en_US.UTF-8",
         "--port=5432",
         "--datadir=" + PGDATA,
+        "--",
         "--auth-local=trust",
         "--auth-host=scram-sha-256",
     ]
