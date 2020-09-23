@@ -21,4 +21,3 @@ import pgcharm
 
 if __name__ == "__main__":
     pgcharm.docker_entrypoint()
-    # pgcharm.debug_docker_entrypoint()

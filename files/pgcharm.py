@@ -68,7 +68,7 @@ def fix_mounts():
         shutil.chown(pgpath, user="postgres", group="postgres")
 
 
-def db_exists():
+def db_exists() -> bool:
     return os.path.isdir(PGDATA)
 
 
@@ -122,11 +122,7 @@ def initdb():
         "--auth-host=scram-sha-256",
     ]
     log.info(f"Running {' '.join(cmd)}")
-    subprocess.run(
-        ["pg_createcluster", PG_MAJOR, "main", "--locale=en_US.UTF-8", "--port=5432", "--datadir=" + PGDATA],
-        check=True,
-        text=True,
-    )
+    subprocess.run(cmd, check=True, text=True)
 
 
 def start_db():
@@ -142,7 +138,7 @@ def update_postgresql_conf():
         outf.write(
             dedent(
                 f"""\
-                # This file maintained by the Juju PostgreSQL k8s charm
+                # This file is maintained by the Juju PostgreSQL k8s charm
                 listen_addresses = '*'
                 hot_standby = on
                 wal_level = replica
@@ -159,7 +155,7 @@ def update_postgresql_conf():
     os.chmod(pgconf_override, 0o644)
 
     hba = open(PG_HBA_CONF, "r").readlines()
-    marker = "# These rules appended by Juju"
+    marker = "# These rules are appended by Juju"
     if (marker + "\n") not in hba:
         with open(PG_HBA_CONF, "a") as outf:
             outf.write("\n")
@@ -338,12 +334,22 @@ def get_master() -> str:
     return None
 
 
+class NoMasterException(Exception):
+    pass
+
+
+@retry(
+    retry=retry_if_exception_type(NoMasterException),
+    stop=stop_after_delay(300),
+    wait=wait_random_exponential(max=12),
+    reraise=True,
+    before=before_log(log, logging.DEBUG),
+)
 def wait_master() -> str:
-    while True:
-        master = get_master()
-        if master:
-            return master
-        time.sleep(5)
+    master = get_master()
+    if master:
+        return master
+    raise NoMasterException()
 
 
 def set_master():
@@ -380,13 +386,6 @@ def set_pod_label():
 
 def get_pod_hostname(name) -> str:
     return f"{JUJU_APPLICATION}-{name}"
-
-
-# def get_pod_ip(name) -> str:
-#     cl = kubernetes.client.ApiClient()
-#     api = kubernetes.client.CoreV1Api(cl)
-#     pod = api.read_namespaced_pod(name, NAMESPACE)
-#     return pod.status.pod_ip
 
 
 def init_logging():
