@@ -14,6 +14,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import logging
+import functools
 import os
 import os.path
 import shutil
@@ -32,6 +33,9 @@ PGDATA = os.environ["PGDATA"]  # No underscore, PostgreSQL config
 PG_MAJOR = os.environ["PG_MAJOR"]
 PG_CONF_DIR = "/srv/pgconf/12/main"
 PG_HBA_CONF = os.path.join(PG_CONF_DIR, "pg_hba.conf")
+PG_BIN = os.path.join("/usr/lib/postgresql", PG_MAJOR, "bin")
+PG_STANDBY_SIGNAL = os.path.join(PGDATA, "standby.signal")  # Formerly recovery.conf
+
 REPMGR_CONF = "/srv/pgconf/repmgr.conf"
 REPMGR_LOG = "/var/log/postgresql/repmgr.log"
 
@@ -49,6 +53,33 @@ AS_PG_CMD = ["sudo", "-u", "postgres", "-EH", "--"]
 REPMGR_CMD = AS_PG_CMD + ["repmgr", "-f", REPMGR_CONF]
 
 log = logging.getLogger(__name__)
+
+
+class NoMasterException(Exception):
+    """Exception raised by get_master when there is no master
+
+    Code will normally retry until the master becomes available.
+    """
+
+    pass
+
+
+# tenacity.retry decorator, retrying on PostgreSQL exceptions.
+# Such as connection failures caused when attempting to connect
+# to a database that isn't ready yet, and retrying on
+# CalledProcessError, as returned by failed repmgr commands,
+# and retrying on NoMasterException, when we need the master
+# but it isn't available yet.
+pgretry = functools.partial(
+    retry,
+    retry=retry_if_exception_type(psycopg2.OperationalError)
+    | retry_if_exception_type(subprocess.CalledProcessError)
+    | retry_if_exception_type(NoMasterException),
+    stop=stop_after_delay(300),
+    wait=wait_random_exponential(multiplier=1, max=20),
+    reraise=True,
+    before=before_log(log, logging.DEBUG),
+)
 
 
 def fix_mounts():
@@ -77,21 +108,17 @@ def maybe_create_db() -> bool:
         log.info(f"PostgreSQL database cluster exists at {PGDATA}")
         return False
 
-    log.info("Checking pod labels for master")
-    master = wait_master()
-    log.info(f"{master} is the master")
-    if master == JUJU_POD_NAME:
-        log.info("Hey, that's me!")
-
     initdb()  # This also creates config files.
-
-    if master != JUJU_POD_NAME:
-        clone_master(master)
 
     return True
 
 
-def clone_master(master):
+@pgretry
+def clone_master():
+    # Determine the master inside this function rather than pass it,
+    # so that if the retry decorator needs to retry it we catch any
+    # changes.
+    master = get_master()
     master_hostname = get_pod_hostname(master)
     log.info(f"Cloning database from {master} ({master_hostname})")
     shutil.rmtree(PGDATA)
@@ -128,7 +155,6 @@ def initdb():
 
 def start_db():
     log.info("Starting PostgreSQL cluster")
-    # TODO: Use pg_ctlcluster? Or pg_ctl like repmgr default?
     subprocess.run(["pg_ctlcluster", PG_MAJOR, "main", "start"], check=True, text=True)
 
 
@@ -211,8 +237,8 @@ def update_repmgr_conf():
                 node_name='{JUJU_POD_NAME}'
                 data_directory='{PGDATA}'
 
-                pg_bindir='/usr/lib/postgresql/{PG_MAJOR}/bin'
-                repmgr_bindir='/usr/lib/postgresql/{PG_MAJOR}/bin'
+                pg_bindir='{PG_BIN}'
+                repmgr_bindir='{PG_BIN}'
 
                 log_level='INFO'
                 log_facility='STDERR'
@@ -222,6 +248,12 @@ def update_repmgr_conf():
                 # Secret pulled from ~/.pgpass
                 conninfo='host={hostname} user=repmgr dbname=repmgr connect_timeout=2'
 
+                service_start_command   = 'pg_ctlcluster {PG_MAJOR} main start'
+                service_stop_command    = 'pg_ctlcluster {PG_MAJOR} main stop'
+                service_restart_command = 'pg_ctlcluster {PG_MAJOR} main restart'
+                service_reload_command  = 'pg_ctlcluster {PG_MAJOR} main reload'
+                service_promote_command = 'pg_ctlcluster {PG_MAJOR} main promote'
+
                 # We do not set a location. We would need 2 nodes (or
                 # one node + one witness) in each location or failover
                 # will not occur.
@@ -229,6 +261,8 @@ def update_repmgr_conf():
 
                 primary_visibility_consensus=true
                 standby_disconnect_on_failover=true
+                standby_reconnect_timeout=180
+                node_rejoin_timeout=180
 
                 failover=automatic
                 promote_command='/usr/local/bin/repmgr_promote_command.py'
@@ -243,13 +277,7 @@ def update_repmgr_conf():
 
 
 # Retry in case local PostgreSQL is still starting up.
-@retry(
-    retry=retry_if_exception_type(psycopg2.OperationalError),
-    stop=stop_after_delay(300),
-    wait=wait_random_exponential(multiplier=1, max=15),
-    reraise=True,
-    before=before_log(log, logging.DEBUG),
-)
+@pgretry
 def update_repmgr_db():
     log.info(f"Resetting repmgr database user password")
     con = psycopg2.connect("dbname=postgres user=postgres")
@@ -272,6 +300,9 @@ def update_repmgr_db():
         cur.execute("CREATE DATABASE repmgr OWNER repmgr")
 
 
+# Retry in case DNS resolution is slow, waiting for the appname-master
+# service to resolve to the local container.
+@pgretry
 def register_repmgr_master():
     log.info(f"Registering PostgreSQL primary server with repmgr")
     # Always reregister with force, as our IP address might have changed.
@@ -281,13 +312,9 @@ def register_repmgr_master():
 
 
 # Retry in case the master is not running, or gets shut down midway.
-@retry(
-    stop=stop_after_delay(300),
-    wait=wait_random_exponential(multiplier=1, max=15),
-    reraise=True,
-    before=before_log(log, logging.DEBUG),
-)
-def register_repmgr_standby(master):
+@pgretry
+def register_repmgr_standby():
+    master = get_master()
     log.info(f"Registering PostgreSQL hot standby server with {master}")
     # Always reregister with force, as our IP address might have changed.
     cmd = REPMGR_CMD + [
@@ -301,9 +328,80 @@ def register_repmgr_standby(master):
         "repmgr",
         "-d",
         "repmgr",
+        "--verbose",  # TODO: Turn off verbosity?
+        "--log-level=DEBUG",  # TODO: Turn off debug?
     ]
     log.info(f"Running {' '.join(cmd)}")
     subprocess.run(cmd, check=True, text=True)
+
+
+def reconnect_repmgr_standby():
+    if os.path.exists(PG_STANDBY_SIGNAL):
+        # This node was a standby. It needs to be instructed to follow
+        # the current master, in case that changed while it was down.
+        # It was previously registered.
+        follow_master()
+    else:
+        # This node was a master, but has been deposed. It needs
+        # to do the 'repmgr rejoin' dance, possibly getting rewound
+        # in the process. Ideally, we would rejoin standbys too
+        # in case there were timeline changes while it was down,
+        # but that does not seem to be working with repmgr 5.0 and
+        # PostgreSQL 12.
+        # TODO: Chase standby rejoin process bug.
+        rejoin_master()
+
+
+# Retry in case the master is not running.
+@pgretry
+def follow_master():
+    master = get_master()
+    log.info(f"Hot standby following {master}")
+    master_hostname = get_pod_hostname(master)
+    assert os.path.exists(PG_STANDBY_SIGNAL)
+    start_db()
+    cmd = REPMGR_CMD + ["-h", master_hostname, "-U", "repmgr", "-d", "repmgr", "standby", "follow"]
+    log.info(f"Running {' '.join(cmd)}")
+    subprocess.run(cmd, check=True, text=True)
+
+
+@pgretry
+def rejoin_master():
+    master = get_master()
+    log.info(f"Deposed master rejoining, following {master}")
+    master_hostname = get_pod_hostname(master)
+
+    # This node was a crashed master, and has since been deposed.
+    # It needs to rejoin as a hot standby.
+    ensure_consistent_db()
+
+    cmd = REPMGR_CMD + ["-h", master_hostname, "-U", "repmgr", "-d", "repmgr", "node", "rejoin", "--force-rewind"]
+    log.info(f"Running {' '.join(cmd)}")
+    r = subprocess.run(cmd, text=True)
+    # The 'rejoin' return codes documented, so use them.
+    if r.returncode == 0:
+        log.info(f"PostgreSQL hot standby rejoined {master}")
+        return
+    elif r.returncode == 1:
+        raise RuntimeError("Bad repmgr configuration")  # Should not happen
+    elif r.returncode == 4:
+        raise RuntimeError("PostgreSQL could not be restarted by repmgr")  # TODO: DB corrupt? Maybe reclone?
+    elif r.returncode == 24:
+        raise RuntimeError("The repmgr rejoin operation failed")
+    raise RuntimeError("The repmgr rejoin operation failed with an unknown error")
+
+
+def ensure_consistent_db():
+    log.info("Ensuring database is in a consistent state")
+    has_signal = os.path.exists(PG_STANDBY_SIGNAL)
+    if has_signal:
+        os.unlink(PG_STANDBY_SIGNAL)
+    else:
+        log.warning("PostgreSQL is not following. Deposed master?")
+    # -D $PG_CONF_DIR because we are using Debian layout (not -D $PGDATA).
+    cmd = AS_PG_CMD + [os.path.join(PG_BIN, "postgres"), "--single", "-D", PG_CONF_DIR]
+    log.info(f"Running {' '.join(cmd)}")
+    subprocess.run(cmd, check=True, text=True, stdin=subprocess.DEVNULL)
 
 
 def configure_k8s_api():
@@ -311,7 +409,10 @@ def configure_k8s_api():
 
 
 def is_master() -> bool:
-    return get_master() == JUJU_POD_NAME
+    try:
+        return get_master() == JUJU_POD_NAME
+    except NoMasterException:
+        return False
 
 
 def get_master() -> str:
@@ -321,35 +422,16 @@ def get_master() -> str:
     masters = [i.metadata.name for i in api.list_namespaced_pod(NAMESPACE, label_selector=master_selector).items]
     if len(masters) == 1:
         return masters[0]
-    elif len(masters) > 1:
-        log.critical("Multiple PostgreSQL masters found. Too many pods with role=master label.")
-        # Code already needs to cope with no-master-yet, so we don't
-        # have to fail hard.
-        return None
-
-    # If there is no master, and this is the first of of the
-    # expected pods, promote ourselves to master.
-    if JUJU_UNIT_NAME == JUJU_EXPECTED_UNITS[0]:
+    elif len(masters) == 0 and JUJU_UNIT_NAME == JUJU_EXPECTED_UNITS[0]:
+        # If there is no master, and this is the first of of the
+        # expected pods, promote ourselves to master.
         return JUJU_POD_NAME
+    elif len(masters) > 1:
+        # Log a message, since this should never happen. Or perhaps it
+        # does if label removal takes time to propogate between k8s
+        # API servers.
+        log.critical("Multiple PostgreSQL masters found. Too many pods with role=master label.")
 
-    return None
-
-
-class NoMasterException(Exception):
-    pass
-
-
-@retry(
-    retry=retry_if_exception_type(NoMasterException),
-    stop=stop_after_delay(300),
-    wait=wait_random_exponential(max=12),
-    reraise=True,
-    before=before_log(log, logging.DEBUG),
-)
-def wait_master() -> str:
-    master = get_master()
-    if master:
-        return master
     raise NoMasterException()
 
 
@@ -423,23 +505,33 @@ def docker_entrypoint():
 
     update_pgpass()
 
-    update_repmgr_conf()  # First, because repmgr will be used to clone.
+    update_repmgr_conf()
 
-    maybe_create_db()
+    db_created = maybe_create_db()
 
     update_postgresql_conf()
 
-    start_db()  # TODO: Ensure DB shutdown cleanly
-
     if is_master():
+        start_db()
         update_repmgr_db()
         register_repmgr_master()
         # Now DB is setup, advertise master status. This triggers other
         # pods to continue.
         set_master()
+
+    elif db_created:
+        # Hot standby that was just created. Clone the master, start,
+        # and register.
+        clone_master()
+        start_db()
+        register_repmgr_standby()
+        set_standby()
+
     else:
-        master = wait_master()
-        register_repmgr_standby(master)
+        # Not the master, but database already exists. Either a
+        # a hot standby or a deposed master. Rejoin the cluster
+        # as a hot standby.
+        reconnect_repmgr_standby()  # DB must not be running.
         set_standby()
 
     exec_repmgrd()  # Does not return
@@ -454,17 +546,22 @@ def exec_repmgrd():
 
 def promote_entrypoint():
     init_logging()
+    log.warning("Promoting to master")
     configure_k8s_api()
     set_master()  # First, lessening chance connections go to an existing master.
-    subprocess.check_call(["repmgr", "standby", "promote", "-v", "-f", REPMGR_CONF, "--log-to-file"], text=True)
+    cmd = AS_PG_CMD + ["repmgr", "standby", "promote", "-v", "-f", REPMGR_CONF, "--log-to-file"]
+    log.info(f"Running {' '.join(cmd)}")
+    subprocess.check_call(cmd, text=True)
 
 
 def follow_entrypoint():
     init_logging()
     node_id = int(sys.argv[1])
+    log.warning(f"Following repmgr node {node_id}")
     configure_k8s_api()
     subprocess.check_call(
-        [
+        AS_PG_CMD
+        + [
             "repmgr",
             "standby",
             "follow",
