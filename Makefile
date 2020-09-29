@@ -13,13 +13,13 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-PG_MAJOR := 12
-DIST_RELEASE := focal
+PG_MAJOR ?= 12
+DIST_RELEASE ?= focal
 
-IMAGE_REGISTRY :=
-IMAGE_NAME := pgcharm
-IMAGE_TAG := latest
-NO_CACHE :=
+IMAGE_REGISTRY ?=
+IMAGE_NAME ?= pgcharm
+IMAGE_TAG ?= latest
+NO_CACHE ?=
 # NO_CACHE := --no-cache
 
 REGISTRY_IMAGE := $(IMAGE_REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)
@@ -47,16 +47,7 @@ clean:
 postgresql.charm: src/*.py requirements.txt *.yaml .jujuignore
 	charmcraft build
 
-image-deps:
-	@echo "Checking shellcheck is present."
-	@command -v shellcheck >/dev/null || { echo "Please install shellcheck to continue ('sudo snap install shellcheck')" && false; }
-
-image-lint: image-deps
-	@echo "Running shellcheck."
-	shellcheck files/docker-entrypoint.sh
-	shellcheck files/docker-readyness.sh
-
-image-build: image-lint
+image-build:
 	@echo "Building the $(LOCAL_IMAGE) image"
 	docker build $(NO_CACHE) -t $(LOCAL_IMAGE) --build-arg BUILD_DATE=$$(date -u +'%Y-%m-%dT%H:%M:%SZ') .
 
