@@ -13,8 +13,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import logging
 import functools
+import logging
 import os
 import os.path
 import shutil
@@ -214,7 +214,7 @@ def update_pgpass():
             outf.write(
                 dedent(
                     f"""\
-                    # This file is maintained by Juju
+                    # This file is maintained by the Juju PostgreSQL k8s charm
                     *:*:repmgr:repmgr:{pw}
                     *:*:replication:repmgr:{pw}
                     """

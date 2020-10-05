@@ -159,7 +159,12 @@ class PostgreSQLCharm(ops.charm.CharmBase):
                 "name": self.client_relations.master_service_name,
                 "spec": {
                     "type": "NodePort",  # NodePort to enable external connections
-                    "clusterIP": "",  # We require a stable IP address selected by k8s. Not 'None'.
+                    # We require a stable IP address selected by k8s,
+                    # so must specify the empty string for clusterIP.
+                    # The default is the string 'None', which will
+                    # give you an unstable IP address (the Pod's
+                    # internal IP I believe).
+                    "clusterIP": "",
                     "ports": [{"name": "pgsql", "port": 5432, "protocol": "TCP"}],
                     "selector": {"juju-app": self.app.name, "role": "master"},
                 },
@@ -168,7 +173,7 @@ class PostgreSQLCharm(ops.charm.CharmBase):
                 "name": self.client_relations.standbys_service_name,
                 "spec": {
                     "type": "NodePort",  # NodePort to enable external connections
-                    "clusterIP": "",  # A stable IP address selected by k8s. Not 'None'.
+                    "clusterIP": "",  # A stable IP address selected by k8s.
                     "ports": [{"name": "pgsql", "port": 5432, "protocol": "TCP"}],
                     "selector": {"juju-app": self.app.name, "role": "standby"},
                 },
