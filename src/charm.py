@@ -152,13 +152,19 @@ class PostgreSQLCharm(ops.charm.CharmBase):
 
     def make_pod_resources(self) -> Dict:
         """Compile and return our pod resources (e.g. ingresses)."""
-        secrets_data = {}  # Fill dictionary with secrets after logging resources
+        secrets_data = {}  # Fill dictionary with secrets after logging.
 
         services = [
             {
                 "name": self.client_relations.master_service_name,
                 "spec": {
                     "type": "NodePort",  # NodePort to enable external connections
+                    # We require a stable IP address selected by k8s,
+                    # so must specify the empty string for clusterIP.
+                    # The default is the string 'None', which will
+                    # give you an unstable IP address (the Pod's
+                    # internal IP I believe).
+                    "clusterIP": "",
                     "ports": [{"name": "pgsql", "port": 5432, "protocol": "TCP"}],
                     "selector": {"juju-app": self.app.name, "role": "master"},
                 },
@@ -167,6 +173,7 @@ class PostgreSQLCharm(ops.charm.CharmBase):
                 "name": self.client_relations.standbys_service_name,
                 "spec": {
                     "type": "NodePort",  # NodePort to enable external connections
+                    "clusterIP": "",  # A stable IP address selected by k8s.
                     "ports": [{"name": "pgsql", "port": 5432, "protocol": "TCP"}],
                     "selector": {"juju-app": self.app.name, "role": "standby"},
                 },
