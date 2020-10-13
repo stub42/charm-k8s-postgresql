@@ -29,6 +29,9 @@ from leadership import RichLeaderData
 import pg
 
 
+PG_MAJOR = 12
+
+
 log = logging.getLogger(__name__)
 
 
@@ -180,6 +183,12 @@ class ClientRelations(ops.framework.Object):
             bset(bucket, "allowed-subnets", allowed_subnets)
             bset(bucket, "master", str(master))
             bset(bucket, "standbys", str(standbys))
+
+            # Charm only supports PG 12. If we support other versions,
+            # we would need to somehow extract this information from
+            # the image or a running pod. Pods could label themselves
+            # with the baked in version.
+            bset(bucket, "version", str(PG_MAJOR))
 
             # Legacy protocol for antique clients, deprecated.
             if is_leader:
